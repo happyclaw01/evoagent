@@ -9,10 +9,20 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import AsyncGenerator, List, Optional
 
-import gradio as gr
 from dotenv import load_dotenv
+
+# IMPORTANT:
+# Load .env files BEFORE importing miroflow-agent modules, because some of them
+# read env vars at import time (module-level constants).
+_GRADIO_DOTENV = Path(__file__).with_name(".env")
+_MIROFLOW_AGENT_DOTENV = (Path(__file__).parent.parent / "miroflow-agent" / ".env").resolve()
+load_dotenv(dotenv_path=_GRADIO_DOTENV, override=False)
+load_dotenv(dotenv_path=_MIROFLOW_AGENT_DOTENV, override=False)
+
+import gradio as gr
 from hydra import compose, initialize_config_dir
 from omegaconf import DictConfig
+
 from src.config.settings import expose_sub_agents_as_tools
 from src.core.pipeline import create_pipeline_components, execute_task_pipeline
 from utils import contains_chinese, replace_chinese_punctuation
@@ -21,9 +31,6 @@ from utils import contains_chinese, replace_chinese_punctuation
 cleanup_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="cleanup")
 
 logger = logging.getLogger(__name__)
-
-# Load environment variables from .env file
-load_dotenv()
 
 # Global Hydra initialization flag
 _hydra_initialized = False
@@ -60,13 +67,13 @@ def load_miroflow_config(config_overrides: Optional[dict] = None) -> DictConfig:
 
     # Add environment variable based overrides (refer to scripts/debug.sh)
     llm_provider = os.getenv(
-        "DEFAULT_LLM_PROVIDER", "qwen"
+        "DEFAULT_LLM_PROVIDER", "openai"
     )  # debug.sh defaults to qwen
     model_name = os.getenv(
-        "DEFAULT_MODEL_NAME", "MiroThinker"
+        "DEFAULT_MODEL_NAME", "gpt-5"
     )  # debug.sh default model
-    agent_set = os.getenv("DEFAULT_AGENT_SET", "evaluation")  # debug.sh uses evaluation
-    base_url = os.getenv("BASE_URL", "http://localhost:11434")
+    agent_set = os.getenv("DEFAULT_AGENT_SET", "evaluation")  # alias -> single_agent_keep5
+    base_url = os.getenv("BASE_URL", "https://api.openai.com/v1")
     print("base_url", base_url)
 
     # Map provider names to config files
@@ -78,7 +85,7 @@ def load_miroflow_config(config_overrides: Optional[dict] = None) -> DictConfig:
     }
 
     llm_config = provider_config_map.get(
-        llm_provider, "qwen-3"
+        llm_provider, "openai"
     )  # default changed to qwen-3
     overrides.extend(
         [
@@ -87,8 +94,8 @@ def load_miroflow_config(config_overrides: Optional[dict] = None) -> DictConfig:
             f"llm.model_name={model_name}",
             f"llm.base_url={base_url}",
             f"agent={agent_set}",  # use evaluation instead of default
-            "benchmark=gaia-validation",  # refer to debug.sh
-            "+pricing=default",
+            # The web demo should run out-of-the-box without benchmark datasets.
+            "benchmark=debug",
         ]
     )
 

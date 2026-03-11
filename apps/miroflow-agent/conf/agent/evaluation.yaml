@@ -1,0 +1,14 @@
+# conf/agent/evaluation.yaml
+#
+# Gradio demo (and some scripts) expect an `agent=evaluation` preset.
+# This repo currently ships `single_agent` and `single_agent_keep5`;
+# we provide `evaluation` as a thin alias to the recommended setup.
+
+defaults:
+  - single_agent_keep5
+  - _self_
+
+
+
+
+

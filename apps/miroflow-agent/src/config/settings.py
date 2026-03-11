@@ -330,7 +330,14 @@ def create_mcp_server_parameters(cfg: DictConfig, agent_cfg: DictConfig):
 
 
 def expose_sub_agents_as_tools(sub_agents_cfg: DictConfig):
-    """Expose sub-agents as tools"""
+    """Expose sub-agents as tools.
+
+    Note: some agent presets do not define any sub-agents. In that case, Hydra may
+    resolve `cfg.agent.sub_agents` to None, so we must handle it gracefully.
+    """
+    if sub_agents_cfg is None:
+        return []
+
     sub_agents_server_params = []
     for sub_agent in sub_agents_cfg.keys():
         if "agent-browsing" in sub_agent:

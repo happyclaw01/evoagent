@@ -1,19 +1,20 @@
 #!/bin/bash
 
 # Parse environment variables, use defaults if not set
-LLM_MODEL=${LLM_MODEL:-"MiroThinker-Models"}
-BASE_URL=${BASE_URL:-"https://your-api.com/v1"}
+LLM_MODEL=${LLM_MODEL:-"openai/gpt-5-2025-08-07"}
+BASE_URL=${BASE_URL:-"https://openrouter.ai/api/v1"}
+
 
 # Configuration parameters
 NUM_RUNS=${NUM_RUNS:-8}
 BENCHMARK_NAME="futurex"
-LLM_PROVIDER=${LLM_PROVIDER:-"qwen"}
+LLM_PROVIDER=${LLM_PROVIDER:-"openai"}
 AGENT_SET=${AGENT_SET:-"single_agent_keep5"}
 MAX_CONTEXT_LENGTH=${MAX_CONTEXT_LENGTH:-262144}
 MAX_CONCURRENT=${MAX_CONCURRENT:-10}
 PASS_AT_K=${PASS_AT_K:-1}
 TEMPERATURE=${TEMPERATURE:-1.0}
-API_KEY=${API_KEY:-"xxx"}
+API_KEY=${API_KEY:-"${OPENAI_API_KEY}"}
 
 # Set results directory
 RESULTS_DIR="../../logs/${BENCHMARK_NAME}/$(date +%m%d)/${LLM_PROVIDER}_${LLM_MODEL}_${AGENT_SET}"
@@ -39,7 +40,7 @@ for i in $(seq 1 $NUM_RUNS); do
         uv run python benchmarks/common_benchmark.py \
             benchmark=$BENCHMARK_NAME \
             benchmark.data.metadata_file="standardized_data_250924_250930.jsonl" \
-            llm=qwen-3 \
+            llm=gpt-5 \
             llm.provider=$LLM_PROVIDER \
             llm.model_name=$LLM_MODEL \
             llm.base_url=$BASE_URL \

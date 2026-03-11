@@ -1,0 +1,16 @@
+# conf/llm/openai.yaml
+defaults:
+  - default
+  - _self_
+
+# A generic OpenAI-compatible config. Use env vars (or Hydra overrides) to pick model/base_url.
+provider: "openai"
+model_name: ${oc.env:DEFAULT_MODEL_NAME,"gpt-4.1"}
+base_url: ${oc.env:BASE_URL,"https://api.openai.com/v1"}
+api_key: ${oc.env:OPENAI_API_KEY,"${OPENAI_API_KEY}"}
+max_context_length: 65536
+
+
+
+
+

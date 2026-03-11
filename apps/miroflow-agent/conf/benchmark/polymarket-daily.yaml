@@ -1,0 +1,25 @@
+# conf/benchmark/polymarket-daily.yaml
+defaults:
+  - default
+  - _self_
+
+name: "polymarket-daily"
+
+data:
+  data_dir: "../../data/polymarket-daily"
+  metadata_file: "metadata.jsonl"
+  field_mapping:
+    task_id_field: "task_id"
+    task_question_field: "task_question"
+    ground_truth_field: "ground_truth"
+    file_name_field: null  # Polymarket doesn't use file attachments
+  # Additional data files to load and attach to task metadata
+  additional_data_files:
+    orderbook: "orderbook.jsonl"
+    price_history: "price_history.jsonl"
+
+execution:
+  max_tasks: null  # null means no limit
+  max_concurrent: 5
+  pass_at_k: 1
+  format_error_retry_limit: 0

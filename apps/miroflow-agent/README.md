@@ -17,6 +17,24 @@ uv run python main.py llm=qwen-3 agent=single_agent_keep5 benchmark=debug llm.ba
 
 This will execute the default task: "What is the title of today's arxiv paper in computer science?"
 
+## Interactive CLI (input one sentence, get one answer)
+
+This repository's default entrypoint (`main.py`) runs a single task once.
+If you want an interactive "type a question, get an answer" experience in terminal,
+use `chat_cli.py`:
+
+```bash
+cd apps/miroflow-agent
+uv sync
+
+# Example (OpenAI-compatible server base url must end with /v1)
+uv run python chat_cli.py llm=qwen-3 agent=single_agent_keep5 llm.base_url=http://127.0.0.1:61002/v1 benchmark=debug
+```
+
+Notes:
+- Each input is treated as a new standalone task (not a multi-turn memory chat).
+- Logs are saved to `../../logs/debug/` (same as `main.py`).
+
 ## Available Configurations
 
 - **LLM Models**: `claude-3-7`, `gpt-5`, `qwen-3`

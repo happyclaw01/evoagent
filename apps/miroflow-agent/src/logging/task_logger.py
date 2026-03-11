@@ -212,27 +212,27 @@ class TaskLog:
         # Add icons to step_name based on content
         icon = ""
         if "Tool Call Start" in step_name:
-            icon = "▶️ "
+            icon = "[TOOL> ] "
         elif "Tool Call Success" in step_name:
-            icon = "✅ "
+            icon = "[TOOL OK] "
         elif "Tool Call Error" in step_name or (
             "error" in info_level and "tool" in step_name.lower()
         ):
-            icon = "❌ "
+            icon = "[TOOL ERR] "
         elif "agent-" in step_name:
-            icon = "🤖 "
+            icon = "[AGENT] "
         elif "Main Agent" in step_name:
-            icon = "👑 "
+            icon = "[MAIN] "
         elif "LLM" in step_name:
-            icon = "🧠 "
+            icon = "[LLM] "
         elif "ToolManager" in step_name or "Tool Call" in step_name:
-            icon = "🔧 "
+            icon = "[TOOLS] "
         elif "tool-python" in step_name.lower():
-            icon = "🐍 "
+            icon = "[PY] "
         elif "tool-google-search" in step_name.lower():
-            icon = "🔍 "
+            icon = "[SEARCH] "
         elif "tool-browser" in step_name.lower() or "playwright" in step_name.lower():
-            icon = "🌐 "
+            icon = "[BROWSER] "
 
         # Add icon to step_name
         step_name_with_icon = f"{icon}{step_name}"

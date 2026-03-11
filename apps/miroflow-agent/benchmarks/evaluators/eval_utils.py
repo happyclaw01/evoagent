@@ -1,6 +1,7 @@
 # Copyright (c) 2025 MiroMind
 # This source code is licensed under the MIT License.
 
+import ast
 import asyncio
 import os
 import re
@@ -126,7 +127,7 @@ async def verify_answer_simpleqa(
 
     try:
         llm_response = await evaluation_llm_client.chat.completions.create(
-            model="gpt-4.1-2025-04-14", messages=messages, max_completion_tokens=2
+            model="openai/gpt-4.1-2025-04-14", messages=messages, max_completion_tokens=2
         )
         content = llm_response.choices[0].message.content
         match = re.search(r"(A|B|C)", content)
@@ -361,7 +362,7 @@ async def verify_answer_gaia_validation_text_103(
     for attempt in range(max_tries):
         try:
             response = await evaluation_llm_client.chat.completions.create(
-                model="gpt-4.1-2025-04-14",
+                model="openai/gpt-4.1-2025-04-14",
                 messages=[{"role": "user", "content": prompt}],
             )
 
@@ -418,7 +419,7 @@ async def verify_answer_browsecomp(
 
     try:
         response = await evaluation_llm_client.beta.chat.completions.parse(
-            model="gpt-4.1-2025-04-14",
+            model="openai/gpt-4.1-2025-04-14",
             messages=[{"role": "user", "content": prompt}],
         )
 
@@ -493,7 +494,7 @@ async def verify_answer_xbench_deepsearch(
     )
     try:
         response = await evaluation_llm_client.chat.completions.create(
-            model="gpt-4.1-2025-04-14",
+            model="openai/gpt-4.1-2025-04-14",
             messages=[{"role": "user", "content": judge_prompt}],
         )
         judge_response = response.choices[0].message.content
@@ -519,8 +520,110 @@ async def verify_answer_xbench_deepsearch(
 
 
 # ================================================
+# verify_answer_futurex (F1-score for multi-choice)
+# ================================================
+
+
+def _parse_answer_elements(answer: str) -> set[str]:
+    """Parse an answer string into a set of normalized elements.
+
+    Handles formats like: "['A', 'B']", "{A, B}", "A, B, C", "A", "Yes", etc.
+    """
+    answer = answer.strip()
+
+    # Try to parse as a Python literal (list, set, tuple)
+    try:
+        parsed = ast.literal_eval(answer)
+        if isinstance(parsed, (list, set, tuple)):
+            return {str(x).strip().lower() for x in parsed}
+        return {str(parsed).strip().lower()}
+    except (ValueError, SyntaxError):
+        pass
+
+    # Handle {A, B} set notation
+    if answer.startswith("{") and answer.endswith("}"):
+        inner = answer[1:-1]
+        return {x.strip().lower() for x in inner.split(",") if x.strip()}
+
+    # Handle comma-separated values
+    if "," in answer:
+        return {x.strip().lower() for x in answer.split(",") if x.strip()}
+
+    return {answer.lower()}
+
+
+def _compute_f1(predicted: set[str], ground_truth: set[str]) -> float:
+    """Compute F1-score between predicted and ground truth element sets."""
+    if not predicted and not ground_truth:
+        return 1.0
+    if not predicted or not ground_truth:
+        return 0.0
+    tp = len(predicted & ground_truth)
+    precision = tp / len(predicted)
+    recall = tp / len(ground_truth)
+    if precision + recall == 0:
+        return 0.0
+    return 2 * precision * recall / (precision + recall)
+
+
+async def verify_answer_futurex(
+    question: str, target: str, predicted_answer: str
+) -> tuple[str, float]:
+    """Evaluate FutureX answers using F1-score for multi-choice, exact match for single.
+
+    Returns (result_str, f1_score).
+    result_str is 'CORRECT' if f1 == 1.0, else 'INCORRECT'.
+    f1_score is the actual F1 value (0.0 to 1.0) for partial credit tracking.
+    """
+    pred_elements = _parse_answer_elements(predicted_answer)
+    gt_elements = _parse_answer_elements(target)
+
+    f1 = _compute_f1(pred_elements, gt_elements)
+
+    # Binary result for compatibility with existing framework
+    result = "CORRECT" if f1 == 1.0 else "INCORRECT"
+    return result, f1
+
+
+# ================================================
 # verify_answer_for_datasets
 # ================================================
+
+
+def _normalize_answer_for_comparison(answer: str) -> str:
+    """Normalize an answer string for comparison.
+
+    Handles Python list representations like "['Blues']" or '["A", "B"]',
+    curly-brace sets like "{C, P}", and plain strings.
+    Returns a normalized, sorted, lowercase string for comparison.
+    """
+    answer = answer.strip()
+
+    # Strip common currency symbols and whitespace
+    answer = re.sub(r'[$€¥£￥%]', '', answer).strip()
+
+    # Try to parse as a Python literal (handles list, set, str, number)
+    try:
+        parsed = ast.literal_eval(answer)
+        if isinstance(parsed, (list, set, tuple)):
+            elements = [str(x).strip().lower() for x in parsed]
+            return ", ".join(sorted(elements))
+        return str(parsed).strip().lower()
+    except (ValueError, SyntaxError):
+        pass
+
+    # Handle {A, B} set notation (when ast.literal_eval fails, e.g. {text with spaces})
+    if answer.startswith("{") and answer.endswith("}"):
+        inner = answer[1:-1]
+        elements = [x.strip().lower() for x in inner.split(",")]
+        return ", ".join(sorted(elements))
+
+    # Handle comma-separated values
+    if "," in answer:
+        elements = [x.strip().lower() for x in answer.split(",")]
+        return ", ".join(sorted(elements))
+
+    return answer.lower()
 
 
 async def _verify_answer_for_datasets_core(
@@ -537,8 +640,18 @@ async def _verify_answer_for_datasets_core(
     if predicted_answer == target:
         return "CORRECT", "exact_match"
 
+    # Normalized comparison: handles list notation, case, and set formatting
+    if _normalize_answer_for_comparison(predicted_answer) == _normalize_answer_for_comparison(target):
+        return "CORRECT", "normalized_match"
+
+    # For futurex, use F1-score evaluator
+    if benchmark_name == "futurex":
+        result, f1 = await verify_answer_futurex(question, target, predicted_answer)
+        print(f"FutureX F1-score: {f1:.4f}")
+        return result, f"futurex_f1({f1:.4f})"
+
     # For gaia-validation, use gaia_scorer
-    if benchmark_name == "gaia-validation":
+    elif benchmark_name == "gaia-validation":
         result = await verify_answer_gaia(question, target, predicted_answer)
         return result, "gaia_scorer"
 

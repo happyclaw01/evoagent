@@ -3,6 +3,7 @@
 
 import logging
 import os
+from datetime import datetime
 from typing import Any, Dict
 
 import httpx
@@ -58,6 +59,62 @@ def _is_huggingface_dataset_or_space_url(url):
     return "huggingface.co/datasets" in url or "huggingface.co/spaces" in url
 
 
+# Prediction market domains whose resolution pages leak ground-truth answers.
+_PREDICTION_MARKET_DOMAINS = [
+    "manifold.markets",
+    "polymarket.com",
+    "metaculus.com",
+    "predictit.org",
+    "kalshi.com",
+    "futuur.com",
+    "insightprediction.com",
+    "smarkets.com",
+]
+
+
+def _is_prediction_market_url(url: str) -> bool:
+    """Return True if the URL belongs to a known prediction market site."""
+    if not url:
+        return False
+    url_lower = url.lower()
+    return any(domain in url_lower for domain in _PREDICTION_MARKET_DOMAINS)
+
+
+def _parse_serper_date(date_str: str) -> datetime | None:
+    """Parse date strings returned by Serper (e.g. 'Jan 18, 2026', 'Apr 6, 2025')."""
+    if not date_str:
+        return None
+    for fmt in ("%b %d, %Y", "%B %d, %Y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(date_str.strip(), fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def _filter_results_by_date(
+    results: list[dict], before_date: str
+) -> list[dict]:
+    """Remove results whose date is on or after before_date (YYYY-MM-DD)."""
+    try:
+        cutoff = datetime.strptime(before_date.strip(), "%Y-%m-%d")
+    except ValueError:
+        logger.warning(f"Invalid before_date format: {before_date}, skipping filter")
+        return results
+
+    filtered = []
+    for item in results:
+        item_date = _parse_serper_date(item.get("date", ""))
+        if item_date and item_date >= cutoff:
+            logger.info(
+                f"Filtered out result (date={item.get('date')}) >= {before_date}: "
+                f"{item.get('title', '')[:80]}"
+            )
+            continue
+        filtered.append(item)
+    return filtered
+
+
 @mcp.tool()
 async def google_search(
     q: str,
@@ -68,6 +125,7 @@ async def google_search(
     tbs: str = None,
     page: int = None,
     autocorrect: bool = None,
+    before_date: str = None,
 ) -> Dict[str, Any]:
     """
     Tool to perform web searches via Serper API and retrieve rich results.
@@ -84,6 +142,7 @@ async def google_search(
         tbs: Time-based search filter ('qdr:h' for past hour, 'qdr:d' for past day, 'qdr:w' for past week, 'qdr:m' for past month, 'qdr:y' for past year)
         page: Page number of results to return (default: 1)
         autocorrect: Whether to autocorrect spelling in query
+        before_date: Filter out results published on or after this date (format: YYYY-MM-DD). Results with a date >= before_date will be removed. Results without a date are kept.
 
     Returns:
         Dictionary containing search results and metadata.
@@ -165,6 +224,10 @@ async def google_search(
                 organic_results, search_params = await perform_search(
                     query_without_quotes
                 )
+
+        # Filter results by date if before_date is specified
+        if before_date and organic_results:
+            organic_results = _filter_results_by_date(organic_results, before_date)
 
         # Build comprehensive response
         response_data = {

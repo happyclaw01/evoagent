@@ -12,3 +12,25 @@ hydra:
 # You can define some top-level or default parameters here
 project_name: "miroflow-agent"
 debug_dir: "../../logs/debug"
+
+# Self-Evolving: inject past experiences into agent prompts
+evolving:
+  enabled: false
+  experience_file: "../../data/experiences.jsonl"
+  max_experiences: 5
+  # Sub-module B (Reflector)
+  reflection_model: ""            # model for reflection LLM calls; empty = use main model
+  auto_reflect: true              # auto-trigger reflection after each pipeline task
+  # Sub-module C (StrategyEvolver)
+  strategy_preferences_file: "../../data/strategy_preferences.json"
+  prompt_overrides_file: "../../data/prompt_overrides.jsonl"
+  min_samples_for_recommendation: 3   # min experiences before recommending a strategy
+  failure_threshold_for_patch: 0.4    # accuracy below this triggers prompt patch
+  auto_approve_patches: false         # auto-approve generated prompt patches
+  # Sub-module D (ExperienceInjector)
+  max_inject_tokens: 2000              # total token budget for injected context
+  classify_method: "rule"              # "rule" (keyword rules) or "llm" (LLM classification)
+  inject_failures: true                # inject failure experiences
+  inject_successes: true               # inject success experiences
+  inject_strategy_recommendations: true # inject strategy preference recommendations
+  inject_prompt_patches: true          # inject approved prompt patches

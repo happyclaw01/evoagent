@@ -18,6 +18,16 @@ refusal_keywords = [
 ]
 
 
+def _is_polymarket_local_decision_mode() -> bool:
+    """
+    Decision-mode switch for Polymarket Daily local-only predictor.
+
+    Enabled when:
+      MIROFLOW_DECISION_MODE=polymarket_local
+    """
+    return os.getenv("MIROFLOW_DECISION_MODE", "").strip().lower() == "polymarket_local"
+
+
 def generate_mcp_system_prompt(date, mcp_servers):
     formatted_date = date.strftime("%Y-%m-%d")
 
@@ -179,10 +189,50 @@ You accomplish a given task iteratively, breaking it down into clear steps and w
     return template
 
 
-def generate_agent_specific_system_prompt(agent_type=""):
+def generate_agent_specific_system_prompt(agent_type="", experience_text=""):
+    """Generate agent-specific system prompt, optionally with injected experiences.
+
+    Args:
+        agent_type: "main" or "agent-browsing"
+        experience_text: pre-formatted experience text to append (from reflector.format_experiences_for_prompt)
+    """
     use_cn_prompt = os.getenv("USE_CN_PROMPT", "0")
     if agent_type == "main":
-        if use_cn_prompt == "0":
+        # Polymarket Daily: local-only "decision predictor" mode (Chinese prompt).
+        # This is intentionally independent from USE_CN_PROMPT to avoid accidental
+        # English responses that violate the benchmark's local-only constraints.
+        if _is_polymarket_local_decision_mode():
+            system_prompt = """\
+# 决策型预测器（Polymarket 本地决策）
+
+你是一个“决策型预测器”，专门针对二选一市场（Yes/No）做**本地**决策。
+
+## 硬约束（必须遵守）
+- **只使用本地输入**：只能使用题干与任务中附带的结构化数据（例如 JSON 中的 `market_features`、订单簿、价格历史等）。  
+- **禁止外部事实**：不得上网检索、不得引用或暗示任何外部来源（新闻、社交媒体、常识补全、历史相似事件等），也不得编造未提供的数据。  
+- **禁止联网类工具**：不得调用任何搜索/浏览/抓取相关工具或能力，包括但不限于 `tool-google-search`、`search_and_scrape_webpage`、`jina_scrape_llm_summary`、以及任何 browser/scrape/search 工具。  
+- **允许本地计算工具**：可以调用 `tool-python`/`tool-reader`/`tool-reading` 来解析/计算本地数据与 JSON。
+
+## 概率与决策规则（优先级）
+你会在任务描述中收到一个 JSON，其中 `market_features` 可能包含以下字段。请按优先级确定最终概率 \(p_{final}\)：
+1. 若存在 `p_final`（快照概率/`probabilities` 推得），则直接用作 \(p_{final}\)
+2. 否则，若存在 `p_mid`（由订单簿中间价推得），用作 \(p_{final}\)
+3. 否则，若存在 `twap_24h`（近段价格均值），用作 \(p_{final}\)
+4. 若以上都缺失，则 \(p_{final}=0.5\)
+
+二选一决策：
+- 若 \(p_{final} \ge 0.5\) 选择 Yes，否则选择 No
+
+## 置信度（high/medium/low）
+结合（若提供）`spread`（价差）、`depth_5`（前 5 档深度）、`vol_24h`（若缺失则使用总 `volume` 作为弱替代）来定性：
+- **high**：价差很小、深度充足、成交量/流动性较高，且关键字段齐全
+- **medium**：信号较一致但流动性或字段完整性一般
+- **low**：价差大/深度薄/成交量低或缺字段较多，或关键指标彼此矛盾
+
+## 证据链要求
+最终结论必须能用**最小证据链**支撑：至少引用 **3 个关键数值**（带字段名与数值），例如 `p_final=...`、`spread=...`、`depth_5=...`、`vol_24h=...`、`p_mid=...`、`twap_24h=...` 等。
+"""
+        elif use_cn_prompt == "0":
             system_prompt = """\n
 # Agent Specific Objective
 
@@ -212,11 +262,33 @@ Do not infer, speculate, summarize broadly, or attempt to fill in missing parts 
 """
     else:
         raise ValueError(f"Unknown agent type: {agent_type}")
+
+    # Self-Evolving: append past experiences if provided
+    if experience_text and agent_type == "main":
+        system_prompt += "\n" + experience_text
+
     return system_prompt.strip()
 
 
 def generate_agent_summarize_prompt(task_description, task_failed=False, agent_type=""):
     if agent_type == "main":
+        if _is_polymarket_local_decision_mode():
+            summarize_prompt = (
+                "你现在处于“决策型预测器（Polymarket 本地决策）”模式。\n\n"
+                "请仅基于任务描述中提供的本地信息（尤其是 JSON 的 `market_features`）给出最终输出。\n"
+                "禁止使用或暗示任何外部信息来源。\n\n"
+                "原始任务如下（供参考）：\n\n"
+                f'"{task_description}"\n\n'
+                "你必须输出**恰好三行**，且严格匹配如下格式（大小写与标点一致）：\n"
+                "第 1 行：\\boxed{Yes} 或 \\boxed{No}\n"
+                "第 2 行：confidence: high|medium|low\n"
+                "第 3 行：evidence: <必须包含至少 3 个关键数值，写成 field=value 的形式>\n\n"
+                "注意：\n"
+                "- evidence 行必须至少包含 3 个不同字段的数值（例如 `p_final=0.83, spread=0.01, depth_5=12345`）\n"
+                "- 不要输出任何额外的行、解释段落或项目符号\n"
+            )
+            return summarize_prompt.strip()
+
         summarize_prompt = (
             "Summarize the above conversation, and output the FINAL ANSWER to the original question.\n\n"
             "If a clear answer has already been provided earlier in the conversation, do not rethink or recalculate it — "
@@ -224,18 +296,23 @@ def generate_agent_summarize_prompt(task_description, task_failed=False, agent_t
             "If a definitive answer could not be determined, make a well-informed educated guess based on the conversation.\n\n"
             "The original question is repeated here for reference:\n\n"
             f'"{task_description}"\n\n'
-            "Wrap your final answer in \\boxed{}.\n"
+            "CRITICAL: You MUST wrap your final answer in \\boxed{{}}. This is mandatory — any response without \\boxed{{}} will be treated as a failure.\n\n"
             "Your final answer should be:\n"
             "- a number, OR\n"
             "- as few words as possible, OR\n"
             "- a comma-separated list of numbers and/or strings.\n\n"
+            "For multiple-choice questions with options (A, B, C, etc.):\n"
+            "- If the question asks you to identify ALL correct options, carefully consider EACH option and include ALL that apply.\n"
+            "- List all selected options separated by commas, e.g., \\boxed{{A, B, C}} or \\boxed{{A, C, E, F}}.\n"
+            "- Do not be conservative — if evidence supports multiple options being correct, include all of them.\n\n"
             "ADDITIONALLY, your final answer MUST strictly follow any formatting instructions in the original question — "
             "such as alphabetization, sequencing, units, rounding, decimal places, etc.\n"
             "If you are asked for a number, express it numerically (i.e., with digits rather than words), don't use commas, and DO NOT INCLUDE UNITS such as $ or USD or percent signs unless specified otherwise.\n"
             "If you are asked for a string, don't use articles or abbreviations (e.g. for cities), unless specified otherwise. Don't output any final sentence punctuation such as '.', '!', or '?'.\n"
             "If you are asked for a comma-separated list, apply the above rules depending on whether the elements are numbers or strings.\n"
             "Do NOT include any punctuation such as '.', '!', or '?' at the end of the answer.\n"
-            "Do NOT include any invisible or non-printable characters in the answer output."
+            "Do NOT include any invisible or non-printable characters in the answer output.\n\n"
+            "Remember: Your response MUST contain \\boxed{{your answer here}}. Example: \\boxed{{A, B, C}} or \\boxed{{42}} or \\boxed{{New York}}"
         )
         use_cn_prompt = os.getenv("USE_CN_PROMPT", "0")
         if use_cn_prompt == "1":

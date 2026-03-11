@@ -10,13 +10,13 @@ import time
 import uuid
 from collections import defaultdict
 from datetime import date
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from miroflow_tools.manager import ToolManager
 from omegaconf import DictConfig
 
 from ..config.settings import expose_sub_agents_as_tools
-from ..io.input_handler import process_input
 from ..io.output_formatter import OutputFormatter
 from ..llm.factory import ClientFactory
 from ..logging.task_logger import (
@@ -34,6 +34,10 @@ from ..utils.wrapper_utils import ErrorBox, ResponseBox
 
 logger = logging.getLogger(__name__)
 
+# Timeout guard for fetching MCP/tool definitions. If tool servers are unavailable or slow,
+# we don't want the whole benchmark run to hang forever.
+_TOOL_DEFS_TIMEOUT_S = int(os.getenv("MIROFLOW_TOOL_DEFS_TIMEOUT_S", "30"))
+
 
 def _list_tools(sub_agent_tool_managers: Dict[str, ToolManager]):
     # Use a dictionary to store the cached result
@@ -43,10 +47,27 @@ def _list_tools(sub_agent_tool_managers: Dict[str, ToolManager]):
         nonlocal cache
         if cache is None:
             # Only fetch tool definitions if not already cached
-            result = {
-                name: await tool_manager.get_all_tool_definitions()
-                for name, tool_manager in sub_agent_tool_managers.items()
-            }
+            result = {}
+            for name, tool_manager in sub_agent_tool_managers.items():
+                try:
+                    result[name] = await asyncio.wait_for(
+                        tool_manager.get_all_tool_definitions(),
+                        timeout=_TOOL_DEFS_TIMEOUT_S,
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        "Timed out fetching tool definitions for sub-agent '%s' after %ss; continuing with empty tool list.",
+                        name,
+                        _TOOL_DEFS_TIMEOUT_S,
+                    )
+                    result[name] = []
+                except Exception as e:
+                    logger.warning(
+                        "Failed fetching tool definitions for sub-agent '%s' (%s); continuing with empty tool list.",
+                        name,
+                        e,
+                    )
+                    result[name] = []
             cache = result
         return cache
 
@@ -87,6 +108,85 @@ class Orchestrator:
 
         # Record used subtask / q / Query
         self.used_queries = {}
+        self._llm_prompt_dump_path: Optional[Path] = None
+        self._llm_prompt_dump_path_logged: bool = False
+
+    def _dump_llm_prompts_if_enabled(
+        self,
+        *,
+        system_prompt: str,
+        message_history: List[Dict[str, Any]],
+        tool_definitions: List[Dict[str, Any]],
+        step_id: int,
+        agent_type: str,
+        purpose: str,
+    ) -> None:
+        """
+        Dump the exact prompts passed to the LLM into a JSONL file under the task log dir.
+
+        Enable with: MIROFLOW_LOG_LLM_PROMPTS=1
+        Optional:
+          - MIROFLOW_LOG_LLM_PROMPTS_INCLUDE_TOOL_DEFS=1 (also store tool_definitions)
+        """
+        if os.getenv("MIROFLOW_LOG_LLM_PROMPTS", "0").strip() != "1":
+            return
+        if not self.task_log:
+            return
+
+        include_tool_defs = (
+            os.getenv("MIROFLOW_LOG_LLM_PROMPTS_INCLUDE_TOOL_DEFS", "0").strip() == "1"
+        )
+
+        try:
+            log_dir = Path(self.task_log.log_dir)
+            log_dir.mkdir(parents=True, exist_ok=True)
+
+            if self._llm_prompt_dump_path is None:
+                # One file per task run; task_id may include attempt/retry suffixes.
+                safe_task_id = str(self.task_log.task_id).replace(os.sep, "_")
+                self._llm_prompt_dump_path = (
+                    log_dir / f"llm_prompts_{safe_task_id}.jsonl"
+                )
+
+            record: Dict[str, Any] = {
+                "timestamp": get_utc_plus_8_time(),
+                "task_id": self.task_log.task_id,
+                "agent_type": agent_type,
+                "step_id": step_id,
+                "purpose": purpose,
+                "system_prompt": system_prompt,
+                "message_history": message_history,
+            }
+            if include_tool_defs:
+                record["tool_definitions"] = tool_definitions
+
+            # Reuse TaskLog serializer to avoid non-serializable surprises.
+            record = self.task_log.serialize_for_json(record)
+
+            with open(self._llm_prompt_dump_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+            if not self._llm_prompt_dump_path_logged:
+                self.task_log.log_step(
+                    "info",
+                    "LLM | Prompt Dump Enabled",
+                    f"Dumping LLM prompts to: {self._llm_prompt_dump_path}",
+                    metadata={
+                        "path": str(self._llm_prompt_dump_path),
+                        "include_tool_definitions": include_tool_defs,
+                    },
+                )
+                self._llm_prompt_dump_path_logged = True
+        except Exception as e:
+            # Never fail the run because of prompt logging.
+            try:
+                self.task_log.log_step(
+                    "warning",
+                    "LLM | Prompt Dump Failed",
+                    f"Failed to dump LLM prompts: {e}",
+                )
+            except Exception:
+                pass
 
     async def _stream_update(self, event_type: str, data: dict):
         """Send streaming update in new SSE protocol format"""
@@ -289,6 +389,14 @@ class Orchestrator:
         """
         original_message_history = message_history
         try:
+            self._dump_llm_prompts_if_enabled(
+                system_prompt=system_prompt,
+                message_history=message_history,
+                tool_definitions=tool_definitions,
+                step_id=step_id,
+                agent_type=agent_type,
+                purpose=purpose,
+            )
             response, message_history = await self.llm_client.create_message(
                 system_prompt=system_prompt,
                 message_history=message_history,
@@ -763,9 +871,17 @@ class Orchestrator:
             )
 
         # Process input
-        initial_user_content, processed_task_desc = process_input(
-            task_description, task_file_name
-        )
+        #
+        # IMPORTANT: Avoid importing heavy file-processing deps unless a file is present.
+        # This keeps benchmark startup fast and prevents "hangs" during module import.
+        if task_file_name:
+            from ..io.input_handler import process_input
+
+            initial_user_content, processed_task_desc = process_input(
+                task_description, task_file_name
+            )
+        else:
+            initial_user_content, processed_task_desc = task_description, task_description
         message_history = [{"role": "user", "content": initial_user_content}]
 
         # Record initial user input
@@ -775,9 +891,23 @@ class Orchestrator:
 
         # Get tool definitions
         if not self.tool_definitions:
-            tool_definitions = (
-                await self.main_agent_tool_manager.get_all_tool_definitions()
-            )
+            try:
+                tool_definitions = await asyncio.wait_for(
+                    self.main_agent_tool_manager.get_all_tool_definitions(),
+                    timeout=_TOOL_DEFS_TIMEOUT_S,
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "Timed out fetching tool definitions for main agent after %ss; continuing with empty tool list.",
+                    _TOOL_DEFS_TIMEOUT_S,
+                )
+                tool_definitions = []
+            except Exception as e:
+                logger.warning(
+                    "Failed fetching tool definitions for main agent (%s); continuing with empty tool list.",
+                    e,
+                )
+                tool_definitions = []
             if self.cfg.agent.sub_agents is not None:
                 tool_definitions += expose_sub_agents_as_tools(
                     self.cfg.agent.sub_agents
@@ -795,11 +925,47 @@ class Orchestrator:
             "info", "Main Agent", f"Number of tools: {len(tool_definitions)}"
         )
 
+        # Self-Evolving: inject past experiences, strategy recommendations,
+        # and prompt patches via ExperienceInjector (sub-module D).
+        experience_text = ""
+        evolving_cfg = self.cfg.get("evolving", None)
+        if evolving_cfg and evolving_cfg.get("enabled", False):
+            try:
+                from ..evolving.experience_injector import ExperienceInjector
+                from ..evolving.experience_store import ExperienceStore
+                from ..evolving.strategy_evolver import StrategyEvolver
+
+                store = ExperienceStore(evolving_cfg.get("experience_file", ""))
+
+                evolver = None
+                prefs_file = evolving_cfg.get("strategy_preferences_file", "")
+                overrides_file = evolving_cfg.get("prompt_overrides_file", "")
+                if prefs_file or overrides_file:
+                    evolver = StrategyEvolver(store, prefs_file, overrides_file)
+
+                injector = ExperienceInjector(
+                    experience_store=store,
+                    strategy_evolver=evolver,
+                    cfg=evolving_cfg,
+                )
+                experience_text = injector.inject(
+                    task_description=task_description,
+                    max_tokens=evolving_cfg.get("max_inject_tokens", 2000),
+                )
+                if experience_text:
+                    self.task_log.log_step(
+                        "info",
+                        "Main Agent | Self-Evolving",
+                        f"Injected experience context ({len(experience_text)} chars)",
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to inject experiences: {e}")
+
         # Generate system prompt
         system_prompt = self.llm_client.generate_agent_system_prompt(
             date=date.today(),
             mcp_servers=tool_definitions,
-        ) + generate_agent_specific_system_prompt(agent_type="main")
+        ) + generate_agent_specific_system_prompt(agent_type="main", experience_text=experience_text)
         system_prompt = system_prompt.strip()
 
         # Main loop: LLM <-> Tools

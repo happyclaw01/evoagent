@@ -4,6 +4,6 @@ defaults:
   - _self_
 
 provider: "openai"
-model_name: "gpt-5-2025-08-07"
-base_url: https://api.openai.com/v1
+model_name: "openai/gpt-5-2025-08-07"
+base_url: https://openrouter.ai/api/v1
 max_context_length: 65536

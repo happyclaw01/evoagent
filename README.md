@@ -656,6 +656,9 @@ LLM_MODEL="xxx" BASE_URL="xxx" bash scripts/run_evaluate_multiple_runs_seal-0.sh
 
 # AIME2025
 LLM_MODEL="xxx" BASE_URL="xxx" bash scripts/run_evaluate_multiple_runs_aime2025.sh
+
+# Polymarket-Daily (pipeline-based; uses MCP tools)
+LLM_MODEL="xxx" BASE_URL="xxx" bash scripts/run_evaluate_multiple_runs_polymarket-daily-pipeline.sh
 ```
 
 </details>

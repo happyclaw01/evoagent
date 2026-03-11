@@ -1,4 +1,4 @@
-# conf/benchmark/futurex.yaml
+# conf/benchmark/futurex_balanced50.yaml - Balanced test with all 4 levels (50 questions)
 defaults:
   - default
   - _self_
@@ -7,9 +7,10 @@ name: "futurex"
 
 data:
   data_dir: "../../data/futurex"
+  metadata_file: "standardized_data_balanced50.jsonl"
 
 execution:
-  max_tasks: null  # null means no limit
+  max_tasks: null
   max_concurrent: 5
   pass_at_k: 1
   format_error_retry_limit: 3

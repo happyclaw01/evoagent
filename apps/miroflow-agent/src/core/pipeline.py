@@ -2,9 +2,12 @@
 # This source code is licensed under the MIT License.
 
 
+import logging
 import traceback
 import uuid
 from typing import Any, Dict, List, Optional
+
+print("[debug] pipeline.py: stdlib imports done", flush=True)
 
 from miroflow_tools.manager import ToolManager
 from omegaconf import DictConfig
@@ -19,7 +22,8 @@ from ..logging.task_logger import (
     TaskLog,
     get_utc_plus_8_time,
 )
-from .orchestrator import Orchestrator
+
+print("[debug] pipeline.py: core imports done (before orchestrator)", flush=True)
 
 
 async def execute_task_pipeline(
@@ -80,6 +84,9 @@ async def execute_task_pipeline(
             sub_agent_tool_manager.set_task_log(task_log)
 
     try:
+        # Lazy import to avoid pulling heavy file-processing deps during module import.
+        from .orchestrator import Orchestrator
+
         # Initialize LLM client
         random_uuid = str(uuid.uuid4())
         unique_id = f"{task_id}-{random_uuid}"
@@ -109,6 +116,8 @@ async def execute_task_pipeline(
         task_log.final_boxed_answer = final_boxed_answer
         task_log.status = "success"
 
+        await _auto_reflect_if_enabled(task_log, cfg)
+
         log_file_path = task_log.save()
         return final_summary, final_boxed_answer, log_file_path
 
@@ -132,6 +141,8 @@ async def execute_task_pipeline(
         task_log.status = "failed"
         task_log.error = error_details
 
+        await _auto_reflect_if_enabled(task_log, cfg)
+
         log_file_path = task_log.save()
 
         return error_message, "", log_file_path
@@ -146,6 +157,25 @@ async def execute_task_pipeline(
             f"Task {task_id} execution completed with status: {task_log.status}",
         )
         task_log.save()
+
+
+async def _auto_reflect_if_enabled(task_log: TaskLog, cfg: DictConfig) -> None:
+    """Trigger auto-reflection when evolving is enabled. Never raises."""
+    evolving_cfg = cfg.get("evolving", {})
+    if (
+        not evolving_cfg.get("enabled", False)
+        or not evolving_cfg.get("auto_reflect", True)
+        or not task_log.ground_truth
+    ):
+        return
+    try:
+        from ..evolving.experience_store import ExperienceStore
+        from ..evolving.reflector import auto_reflect_after_task
+
+        store = ExperienceStore(evolving_cfg.get("experience_file", ""))
+        await auto_reflect_after_task(task_log, cfg, store)
+    except Exception as exc:
+        logging.getLogger(__name__).warning(f"Auto-reflect failed: {exc}")
 
 
 def create_pipeline_components(cfg: DictConfig):

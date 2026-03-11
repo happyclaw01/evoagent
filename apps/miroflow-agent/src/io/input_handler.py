@@ -18,8 +18,6 @@ import openpyxl
 import pdfminer
 import pdfminer.high_level
 import pptx
-import pydub
-import speech_recognition as sr
 from bs4 import BeautifulSoup
 from markitdown import MarkItDown
 from openpyxl.utils import get_column_letter
@@ -817,6 +815,9 @@ def _transcribe_audio(local_path) -> str:
     Returns:
         Transcription as a string
     """
+    # Lazy import to avoid heavy deps / ffmpeg checks during program startup.
+    import speech_recognition as sr
+
     recognizer = sr.Recognizer()
     with sr.AudioFile(local_path) as source:
         audio = recognizer.record(source)
@@ -875,6 +876,9 @@ def WavConverter(local_path) -> Union[None, dict]:
 
 
 def Mp3Converter(local_path: str, extension: str, **kwargs):
+    # Lazy import to avoid pydub (and its ffmpeg detection) during program startup.
+    import pydub
+
     md_content = ""
 
     # Add metadata

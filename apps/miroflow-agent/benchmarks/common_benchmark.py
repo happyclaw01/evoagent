@@ -13,16 +13,32 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-import hydra
+print("[debug] common_benchmark.py: imports (stdlib) done", flush=True)
 
-# Import from the new modular structure
+print("[debug] importing hydra...", flush=True)
+import hydra
+print("[debug] imported hydra", flush=True)
+
+print("[debug] importing evaluators.eval_utils.verify_answer_for_datasets...", flush=True)
 from evaluators.eval_utils import verify_answer_for_datasets
+print("[debug] imported evaluators.eval_utils.verify_answer_for_datasets", flush=True)
+
+print("[debug] importing omegaconf (DictConfig, OmegaConf)...", flush=True)
 from omegaconf import DictConfig, OmegaConf
+print("[debug] imported omegaconf (DictConfig, OmegaConf)", flush=True)
+
+print("[debug] importing src.core.pipeline (create_pipeline_components, execute_task_pipeline)...", flush=True)
 from src.core.pipeline import (
     create_pipeline_components,
     execute_task_pipeline,
 )
+print("[debug] imported src.core.pipeline", flush=True)
+
+print("[debug] importing src.logging.summary_time_cost.generate_summary...", flush=True)
 from src.logging.summary_time_cost import generate_summary
+print("[debug] imported src.logging.summary_time_cost.generate_summary", flush=True)
+
+print("[debug] common_benchmark.py: imports (project deps) done", flush=True)
 
 # Constants for format error detection
 FORMAT_ERROR_MESSAGE = "No \\boxed{} content found in the final answer."
@@ -59,7 +75,12 @@ def _task_worker(task_dict, cfg_dict, evaluator_kwargs):
         question_field=evaluator_kwargs.get("question_field", "task_question"),
         ground_truth_field=evaluator_kwargs.get("ground_truth_field", "ground_truth"),
         file_name_field=evaluator_kwargs.get("file_name_field"),
+        additional_data_files=evaluator_kwargs.get("additional_data_files"),
     )
+    
+    # Set log_dir for subprocess (to avoid HydraConfig.get() in worker)
+    if "log_dir" in evaluator_kwargs:
+        evaluator._log_dir = evaluator_kwargs["log_dir"]
 
     # Run task in new event loop
     loop = asyncio.new_event_loop()
@@ -155,7 +176,19 @@ class BenchmarkEvaluator(ABC):
 
     def get_log_dir(self) -> Path:
         """Get the log directory for the current benchmark and model."""
-        return Path(hydra.core.hydra_config.HydraConfig.get().run.dir)
+        try:
+            # Try to get from Hydra config (works in main process)
+            return Path(hydra.core.hydra_config.HydraConfig.get().run.dir)
+        except (AttributeError, RuntimeError, ValueError):
+            # Fallback for subprocess: use hydra.run.dir from config or construct from cfg
+            if hasattr(self, '_log_dir'):
+                return Path(self._log_dir)
+            # Try to get from cfg.hydra.run.dir
+            hydra_run_dir = self.cfg.get("hydra", {}).get("run", {}).get("dir")
+            if hydra_run_dir:
+                return Path(hydra_run_dir)
+            # Last resort: construct a default path
+            return Path("outputs") / self.benchmark_name / "default"
 
     async def run_single_task(self, task: BenchmarkTask) -> BenchmarkResult:
         """
@@ -373,11 +406,11 @@ class BenchmarkEvaluator(ABC):
                             )
 
                         if attempt_result["is_correct"]:
-                            print(f"    ✅ Attempt {attempt}: CORRECT!")
+                            print(f"    [OK] Attempt {attempt}: CORRECT!")
                             found_correct_answer = True
                         else:
                             print(
-                                f"    ❌ Attempt {attempt}: INCORRECT ({evaluation_result})"
+                                f"    [FAIL] Attempt {attempt}: INCORRECT ({evaluation_result})"
                             )
 
                     except Exception as e:
@@ -387,15 +420,15 @@ class BenchmarkEvaluator(ABC):
                         attempt_result["is_correct"] = False
 
                 elif attempt_result["is_correct"]:
-                    print(f"    ✅ Attempt {attempt}: CORRECT (cached)")
+                    print(f"    [OK] Attempt {attempt}: CORRECT (cached)")
                     found_correct_answer = True
 
                 elif attempt_result["final_judge_result"]:
                     print(
-                        f"    ❌ Attempt {attempt}: INCORRECT (cached: {attempt_result['final_judge_result']})"
+                        f"    [FAIL] Attempt {attempt}: INCORRECT (cached: {attempt_result['final_judge_result']})"
                     )
                 else:
-                    print(f"    ⚠️  Attempt {attempt}: No valid answer to verify")
+                    print(f"    [WARN] Attempt {attempt}: No valid answer to verify")
 
                 result.attempts.append(attempt_result)
 
@@ -413,7 +446,7 @@ class BenchmarkEvaluator(ABC):
                 # Early stopping: if we found a correct answer, we can stop
                 if found_correct_answer:
                     print(
-                        f"    🎯 Found correct answer! Stopping early after {attempt} attempts."
+                        f"    Found correct answer! Stopping early after {attempt} attempts."
                     )
                     break
 
@@ -438,9 +471,8 @@ class BenchmarkEvaluator(ABC):
 
             print(f"Task {task.task_id} completed with {len(result.attempts)} attempts")
             if result.ground_truth is not None:
-                print(
-                    f"    Pass@{self.pass_at_k} result: {'✅ SUCCESS' if found_correct_answer else '❌ FAILED'}"
-                )
+                status = "SUCCESS" if found_correct_answer else "FAILED"
+                print(f"    Pass@{self.pass_at_k} result: {status}")
 
         gc.collect()
         return result
@@ -463,10 +495,38 @@ class BenchmarkEvaluator(ABC):
         finally:
             loop.close()
 
+    def run_sequential_inference(self, tasks: List[BenchmarkTask]) -> List[BenchmarkResult]:
+        """Run inference on tasks sequentially in the current process (no multiprocessing)."""
+        print(f"Running inference on {len(tasks)} tasks (sequential, single process)")
+        processed_results: List[BenchmarkResult] = []
+        total = len(tasks)
+        for idx, task in enumerate(tasks, start=1):
+            print(f"Progress: {idx}/{total} (task_id={task.task_id})")
+            try:
+                result = self._run_single_task_sync(task)
+            except Exception as e:
+                result = BenchmarkResult(
+                    task_id=task.task_id,
+                    task_question=task.task_question,
+                    ground_truth=task.ground_truth,
+                    file_path=task.file_path,
+                    status="failed",
+                    model_boxed_answer="",
+                    metadata=task.metadata.copy(),
+                    error_message=str(e),
+                )
+            processed_results.append(result)
+        self.results = processed_results
+        return processed_results
+
     def run_parallel_inference(
         self, tasks: List[BenchmarkTask], max_concurrent: int = 3
     ) -> List[BenchmarkResult]:
         """Run inference on multiple tasks in parallel using multiprocessing"""
+        # If user requests sequential execution, avoid spawning subprocesses.
+        if max_concurrent <= 1:
+            return self.run_sequential_inference(tasks)
+
         print(
             f"Running inference on {len(tasks)} tasks with max_concurrent={max_concurrent} (multiprocessing)"
         )
@@ -478,10 +538,18 @@ class BenchmarkEvaluator(ABC):
         shuffled_tasks = tasks.copy()
         random.shuffle(shuffled_tasks)
 
+        # Get log_dir from main process before passing to workers
+        try:
+            main_log_dir = str(self.get_log_dir())
+        except Exception:
+            # If we can't get it, use a default
+            main_log_dir = str(Path("outputs") / self.benchmark_name / "default")
+        
         # Prepare evaluator kwargs for worker processes
         evaluator_kwargs = {
             "data_dir": str(self.data_dir),
             "benchmark_name": self.benchmark_name,
+            "log_dir": main_log_dir,  # Pass log_dir to workers
         }
         # Add GenericEvaluator specific kwargs if available
         if hasattr(self, "metadata_file"):
@@ -554,7 +622,7 @@ class BenchmarkEvaluator(ABC):
                     )
                     results_dict[task_id] = error_result
         except KeyboardInterrupt:
-            print("\n⚠️  Received interrupt signal, shutting down gracefully...")
+            print("\n[WARN] Received interrupt signal, shutting down gracefully...")
             if executor:
                 print("  Cancelling pending tasks and terminating worker processes...")
                 # Cancel all pending futures
@@ -636,6 +704,7 @@ class BenchmarkEvaluator(ABC):
 
         correct_count = 0
         total_count = 0
+        f1_scores = []
 
         for result in self.results:
             total_count += 1
@@ -644,9 +713,9 @@ class BenchmarkEvaluator(ABC):
             print(f"\nTask {result.task_id}:")
             print(f"  Attempts: {len(result.attempts)}")
             if result.ground_truth is not None:
-                print(
-                    f"  Pass@{self.pass_at_k}: {'✅ SUCCESS' if result.pass_at_k_success else '❌ FAILED'}"
-                )
+                # Use ASCII characters for Windows compatibility
+                status = "SUCCESS" if result.pass_at_k_success else "FAILED"
+                print(f"  Pass@{self.pass_at_k}: {status}")
 
             print("  " + "=" * 50)
             print(f"  Reference: {result.ground_truth}")
@@ -655,11 +724,32 @@ class BenchmarkEvaluator(ABC):
             if result.pass_at_k_success:
                 correct_count += 1
 
+            # Extract F1 score from judge_type if available (futurex)
+            for attempt in result.attempts:
+                jt = attempt.get("judge_type", "")
+                if "futurex_f1" in jt:
+                    import re as _re
+                    m = _re.search(r"futurex_f1\(([\d.]+)\)", jt)
+                    if m:
+                        f1_scores.append(float(m.group(1)))
+                        break
+            else:
+                # No futurex F1 found, use binary
+                if result.pass_at_k_success:
+                    f1_scores.append(1.0)
+                elif result.ground_truth is not None:
+                    f1_scores.append(0.0)
+
         pass_at_k_accuracy = correct_count / total_count if total_count > 0 else 0.0
 
         print(f"\nPass@{self.pass_at_k} Final Results:")
         print(f"Tasks passed: {correct_count}/{total_count}")
         print(f"Pass@{self.pass_at_k} Accuracy: {pass_at_k_accuracy:.2%}")
+
+        # Print F1-based accuracy if available
+        if f1_scores:
+            avg_f1 = sum(f1_scores) / len(f1_scores)
+            print(f"Average F1 Score: {avg_f1:.4f} ({avg_f1:.2%})")
 
         return pass_at_k_accuracy
 
@@ -706,6 +796,7 @@ class GenericEvaluator(BenchmarkEvaluator):
         question_field: str = "task_question",
         ground_truth_field: str = "ground_truth",
         file_name_field: Optional[str] = "file_name_field",
+        additional_data_files: Optional[Dict[str, str]] = None,
     ):
         """
         Initialize generic evaluator
@@ -719,7 +810,8 @@ class GenericEvaluator(BenchmarkEvaluator):
             question_field: Field name for task question in the data
             ground_truth_field: Field name for ground truth answer in the data
             file_name_field: Field name for file name in the data (optional)
-            pass_at_k: Pass@K value for evaluation (default: 1)
+            additional_data_files: Optional dict mapping metadata key to JSONL filename
+                                  e.g., {"orderbook": "orderbook.jsonl", "price_history": "price_history.jsonl"}
         """
         super().__init__(data_dir=data_dir, benchmark_name=benchmark_name, cfg=cfg)
         self.metadata_file = self.data_dir / metadata_file
@@ -727,8 +819,50 @@ class GenericEvaluator(BenchmarkEvaluator):
         self.question_field = question_field
         self.ground_truth_field = ground_truth_field
         self.file_name_field = file_name_field
+        self.additional_data_files = additional_data_files or {}
         self.tasks: List[BenchmarkTask] = []
         self.results: List[BenchmarkResult] = []
+
+    def _load_additional_data(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Load additional data files (e.g., orderbook.jsonl, price_history.jsonl)
+        and index them by market_id or task_id.
+
+        Returns:
+            Dict mapping metadata key to dict of {task_id/market_id: data}
+        """
+        additional_data = {}
+        
+        for metadata_key, filename in self.additional_data_files.items():
+            file_path = self.data_dir / filename
+            if not file_path.exists():
+                print(f"Warning: Additional data file not found: {file_path}")
+                continue
+            
+            print(f"Loading additional data from {file_path}")
+            data_dict = {}
+            
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        if not line.strip():
+                            continue
+                        try:
+                            record = json.loads(line.strip())
+                            # Try to match by market_id first, then task_id
+                            key = record.get("market_id") or record.get("task_id")
+                            if key:
+                                data_dict[key] = record
+                        except json.JSONDecodeError as e:
+                            print(f"Warning: Failed to parse line in {filename}: {e}")
+                            continue
+                
+                additional_data[metadata_key] = data_dict
+                print(f"Loaded {len(data_dict)} records from {filename}")
+            except Exception as e:
+                print(f"Warning: Failed to load {filename}: {e}")
+        
+        return additional_data
 
     def load_tasks(self, limit: Optional[int] = None) -> List[BenchmarkTask]:
         """
@@ -744,6 +878,9 @@ class GenericEvaluator(BenchmarkEvaluator):
 
         if not self.metadata_file.exists():
             raise FileNotFoundError(f"Metadata file not found: {self.metadata_file}")
+
+        # Load additional data files if specified
+        additional_data = self._load_additional_data()
 
         tasks = []
         with open(self.metadata_file, "r", encoding="utf-8") as f:
@@ -772,8 +909,18 @@ class GenericEvaluator(BenchmarkEvaluator):
                         ]
                     }
 
+                    # Add additional data from orderbook.jsonl, price_history.jsonl, etc.
+                    # Match by market_id from metadata, or fall back to task_id
+                    market_id = metadata.get("market_id")
+                    task_id = data[self.task_id_field]
+                    match_key = market_id or task_id
+                    
+                    for metadata_key, data_dict in additional_data.items():
+                        if match_key in data_dict:
+                            metadata[metadata_key] = data_dict[match_key]
+
                     task = BenchmarkTask(
-                        task_id=data[self.task_id_field],
+                        task_id=task_id,
                         task_question=data[self.question_field],
                         ground_truth=data[self.ground_truth_field],
                         file_path=file_path,
@@ -812,8 +959,19 @@ class GenericEvaluator(BenchmarkEvaluator):
         else:
             task_file_path = None
 
-        # Return task question and file path
-        return task.task_question, task_file_path
+        task_description = task.task_question
+        end_time = task.metadata.get("end_time", "")
+        if end_time:
+            deadline = str(end_time).split(" ")[0]
+            task_description += (
+                f"\n\nIMPORTANT TIME CONSTRAINT: This event is expected to resolve around {deadline}. "
+                f"You must ONLY use information that was available BEFORE {deadline}. "
+                f"Do NOT use any information published on or after {deadline}. "
+                f"Your goal is to PREDICT the outcome based on pre-deadline evidence, not to look up what already happened. "
+                f"If you encounter any source that reveals the actual outcome or resolution result, you MUST IGNORE it and base your prediction solely on information available before {deadline}."
+            )
+
+        return task_description, task_file_path
 
 
 class CommonBenchmark:
@@ -842,43 +1000,50 @@ class CommonBenchmark:
                 evaluator_kwargs["ground_truth_field"] = mapping.ground_truth_field
             if "file_name_field" in mapping:
                 evaluator_kwargs["file_name_field"] = mapping.file_name_field
+        if "additional_data_files" in cfg.benchmark.data:
+            evaluator_kwargs["additional_data_files"] = dict(cfg.benchmark.data.additional_data_files)
 
+        print("[debug] CommonBenchmark.__init__: creating evaluator...", flush=True)
         self.evaluator = GenericEvaluator(
             data_dir=cfg.benchmark.data.data_dir,
             benchmark_name=self.benchmark_name,
             cfg=cfg,
             **evaluator_kwargs,
         )
+        print("[debug] CommonBenchmark.__init__: evaluator created", flush=True)
 
     def run_evaluation(self) -> float:
         """
         Run the full benchmark evaluation process
         """
-        print(f"Starting evaluation for benchmark: {self.benchmark_name}")
-        print(f"LLM Provider: {self.evaluator.llm_provider}")
-        print(f"LLM Model: {self.evaluator.llm_model}")
+        print(f"[debug] Starting evaluation for benchmark: {self.benchmark_name}", flush=True)
+        print(f"[debug] LLM Provider: {self.evaluator.llm_provider}", flush=True)
+        print(f"[debug] LLM Model: {self.evaluator.llm_model}", flush=True)
 
         # Load tasks
+        print("[debug] load_tasks: begin", flush=True)
         self.evaluator.load_tasks(limit=self.cfg.benchmark.execution.max_tasks)
+        print("[debug] load_tasks: done", flush=True)
         if not self.evaluator.tasks:
-            print("No tasks loaded. Exiting.")
+            print("[debug] No tasks loaded. Exiting.", flush=True)
             return 0.0
 
         # Run inference
-        print(
-            f"\nStarting parallel inference with {self.cfg.benchmark.execution.max_concurrent} concurrent tasks..."
-        )
-        print(f"Using pass@{self.evaluator.pass_at_k} evaluation...")
+        max_concurrent = int(self.cfg.benchmark.execution.max_concurrent)
+        if max_concurrent <= 1:
+            print("\n[debug] Starting sequential inference with max_concurrent=1 ...", flush=True)
+        else:
+            print(f"\n[debug] Starting parallel inference with {max_concurrent} concurrent tasks...", flush=True)
+        print(f"[debug] Using pass@{self.evaluator.pass_at_k} evaluation...", flush=True)
 
-        self.evaluator.run_parallel_inference(
-            self.evaluator.tasks,
-            max_concurrent=self.cfg.benchmark.execution.max_concurrent,
-        )
+        print("[debug] inference: begin", flush=True)
+        self.evaluator.run_parallel_inference(self.evaluator.tasks, max_concurrent=max_concurrent)
+        print("[debug] inference: done", flush=True)
 
         # Evaluate accuracy
-        print("Evaluating accuracy...")
+        print("[debug] Evaluating accuracy...", flush=True)
         accuracy = self.evaluator.evaluate_accuracy()
-        print(f"\nOverall pass@{self.evaluator.pass_at_k} accuracy: {accuracy:.2%}")
+        print(f"\n[debug] Overall pass@{self.evaluator.pass_at_k} accuracy: {accuracy:.2%}", flush=True)
         # Save results
 
         # Construct the full path in the correct log directory
@@ -904,10 +1069,14 @@ def run_benchmark(cfg: DictConfig) -> None:
     """
     Main entry point for running benchmarks with Hydra.
     """
-    print("Benchmark configuration:\n", OmegaConf.to_yaml(cfg.benchmark))
+    print("[debug] run_benchmark: entered hydra main", flush=True)
+    print("Benchmark configuration:\n", OmegaConf.to_yaml(cfg.benchmark), flush=True)
 
+    print("[debug] run_benchmark: constructing CommonBenchmark", flush=True)
     benchmark = CommonBenchmark(cfg)
+    print("[debug] run_benchmark: running evaluation", flush=True)
     benchmark.run_evaluation()
+    print("[debug] run_benchmark: done", flush=True)
 
 
 if __name__ == "__main__":

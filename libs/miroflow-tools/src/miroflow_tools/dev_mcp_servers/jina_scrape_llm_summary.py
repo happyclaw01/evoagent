@@ -73,10 +73,15 @@ async def scrape_and_extract_info(
             "tokens_used": 0,
         }
 
+    # Strip resolution/settlement info from prediction market pages
+    content = scrape_result["content"]
+    if _is_prediction_market_url(url):
+        content = _strip_resolution_info(content)
+
     # Then, summarize the content
     extracted_result = await extract_info_with_llm(
         url=url,
-        content=scrape_result["content"],
+        content=content,
         info_to_extract=info_to_extract,
         model=SUMMARY_LLM_MODEL_NAME,
         max_tokens=8192,
@@ -108,6 +113,53 @@ def _is_huggingface_dataset_or_space_url(url):
     if not url:
         return False
     return "huggingface.co/datasets" in url or "huggingface.co/spaces" in url
+
+
+# Prediction market domains whose resolution pages leak ground-truth answers.
+_PREDICTION_MARKET_DOMAINS = [
+    "manifold.markets",
+    "polymarket.com",
+    "metaculus.com",
+    "predictit.org",
+    "kalshi.com",
+    "futuur.com",
+    "insightprediction.com",
+    "smarkets.com",
+]
+
+
+def _is_prediction_market_url(url: str) -> bool:
+    """Return True if the URL belongs to a known prediction market site."""
+    if not url:
+        return False
+    url_lower = url.lower()
+    return any(domain in url_lower for domain in _PREDICTION_MARKET_DOMAINS)
+
+
+import re
+
+# Patterns that indicate resolution/settlement results on prediction market pages.
+_RESOLUTION_PATTERNS = re.compile(
+    r"(?i)"
+    r"(resolved?\s+(yes|no|n/?a|mkt|prob))"
+    r"|"
+    r"(resolution\s*:\s*(yes|no|n/?a|mkt|prob))"
+    r"|"
+    r"(this\s+market\s+(has\s+)?resolved)"
+    r"|"
+    r"(resolved\s+to\s+)"
+    r"|"
+    r"(settlement\s*:\s*)"
+    r"|"
+    r"(final\s+outcome\s*:\s*)"
+)
+
+
+def _strip_resolution_info(content: str) -> str:
+    """Remove lines containing resolution/settlement results from scraped content."""
+    lines = content.split("\n")
+    filtered = [line for line in lines if not _RESOLUTION_PATTERNS.search(line)]
+    return "\n".join(filtered)
 
 
 async def scrape_url_with_jina(
@@ -359,6 +411,8 @@ INSTRUCTIONS:
 3. Be specific and include exact details when available.
 4. Clearly organize the extracted information for easy understanding.
 5. Do not include general summaries or unrelated content.
+6. CRITICAL: If the content is from a prediction market (e.g. Manifold Markets, Polymarket, Metaculus, etc.), you MUST NOT extract or reveal any resolution/settlement results such as "Resolved YES", "Resolved NO", "Resolved N/A", final outcomes, or settlement statuses. Only extract pre-resolution information such as current probabilities, market descriptions, comments, analysis, and discussion. Omit any sentence that reveals how a market resolved.
+7. TIME CONSTRAINT: If the INFORMATION TO EXTRACT mentions a time constraint or deadline (e.g. "before 2026-01-18"), you MUST only extract information that was published or available BEFORE that date. Do NOT extract any facts, news, results, or outcomes that were published on or after the deadline. If the content is a news article or report published after the deadline, return only background information that would have been known before the deadline and explicitly note that the article was published after the cutoff date.
 
 CONTENT TO ANALYZE:
 {}

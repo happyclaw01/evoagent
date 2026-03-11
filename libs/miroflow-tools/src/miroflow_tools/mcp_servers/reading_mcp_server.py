@@ -3,6 +3,7 @@
 
 import argparse
 import logging
+import re
 import sys
 
 from fastmcp import FastMCP
@@ -10,6 +11,47 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 logger = logging.getLogger("miroflow")
+
+# Prediction market domains whose resolution pages leak ground-truth answers.
+_PREDICTION_MARKET_DOMAINS = [
+    "manifold.markets",
+    "polymarket.com",
+    "metaculus.com",
+    "predictit.org",
+    "kalshi.com",
+    "futuur.com",
+    "insightprediction.com",
+    "smarkets.com",
+]
+
+_RESOLUTION_PATTERNS = re.compile(
+    r"(?i)"
+    r"(resolved?\s+(yes|no|n/?a|mkt|prob))"
+    r"|"
+    r"(resolution\s*:\s*(yes|no|n/?a|mkt|prob))"
+    r"|"
+    r"(this\s+market\s+(has\s+)?resolved)"
+    r"|"
+    r"(resolved\s+to\s+)"
+    r"|"
+    r"(settlement\s*:\s*)"
+    r"|"
+    r"(final\s+outcome\s*:\s*)"
+)
+
+
+def _is_prediction_market_url(url: str) -> bool:
+    if not url:
+        return False
+    url_lower = url.lower()
+    return any(domain in url_lower for domain in _PREDICTION_MARKET_DOMAINS)
+
+
+def _strip_resolution_info(content: str) -> str:
+    """Remove lines containing resolution/settlement results from content."""
+    lines = content.split("\n")
+    filtered = [line for line in lines if not _RESOLUTION_PATTERNS.search(line)]
+    return "\n".join(filtered)
 
 # Initialize FastMCP server
 mcp = FastMCP("reading-mcp-server")
@@ -62,6 +104,10 @@ async def convert_to_markdown(uri: str) -> str:
         return (
             f"Error: Failed to connect to markitdown-mcp server: {str(session_error)}"
         )
+
+    # Strip resolution info from prediction market pages
+    if _is_prediction_market_url(uri):
+        result_content = _strip_resolution_info(result_content)
 
     return result_content
 

@@ -220,3 +220,11 @@ data/
 .DS_Store
 
 apps/collect-trace/scripts/*/*.sh
+
+# Private / sensitive files
+*.pem
+Scripts.dll
+.claude/
+.vscode/
+evidence_log_*.md
+assets/*.docx
