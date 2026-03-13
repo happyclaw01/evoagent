@@ -205,3 +205,103 @@ class OpenVikingContextLayer:
 
 *分析人: shanghai_claw_one*  
 *日期: 2026-03-13*
+---
+
+## 7. EA-307 完整设计规范
+
+### 7.1 功能定义
+
+| 编号 | 功能名称 | 描述 | 状态 |
+|------|---------|------|------|
+| EA-307.1 | OpenViking 连接器 | 初始化并管理 OpenViking Client 连接 | 待开发 |
+| EA-307.2 | 上下文加载器 | 根据任务意图加载 L0/L1 上下文 | 待开发 |
+| EA-307.3 | 经验存储器 | 任务完成后保存执行经验到 Agent Memory | 待开发 |
+| EA-307.4 | 跨路径共享 | 通过 viking:// 发现共享机制 | 待开发 |
+| EA-307.5 | 记忆自迭代 | 会话结束自动提取长期记忆 | 待开发 |
+
+### 7.2 接口设计
+
+```python
+class OpenVikingContext:
+    """EvoAgent 的 OpenViking 上下文管理层 (EA-307)"""
+    
+    def __init__(self, config: DictConfig):
+        self.server_url = config.get("server_url", "http://localhost:8080")
+        self.api_key = config.get("api_key", "")
+        self.client = AsyncOpenVikingClient(self.server_url, self.api_key)
+    
+    async def load_task_context(self, task_description: str, strategy_name: str, load_depth: str = "L1"):
+        """加载任务相关上下文"""
+        # 1. 意图分析
+        intent = await self._analyze_intent(task_description)
+        
+        # 2. 目录递归检索
+        results = await self.client.retrieve(
+            intent=intent,
+            depth=load_depth,
+            namespaces=["agent/memories", "resources/discoveries"]
+        )
+        
+        return self._format_blocks(results)
+    
+    async def save_path_result(self, path_id: str, strategy: str, result: dict, success: bool):
+        """保存路径执行结果到记忆 (EA-307.3)"""
+        if not success:
+            return
+        
+        memory = {
+            "task": result.get("task", ""),
+            "strategy": strategy,
+            "answer": result.get("answer", "")[:500],
+            "turns": result.get("turns", 0),
+            "insights": self._extract_insights(result)
+        }
+        
+        await self.client.write(
+            uri=f"viking://agent/memories/{path_id}",
+            content=json.dumps(memory),
+            layer="L1"
+        )
+    
+    async def share_discovery(self, path_id: str, discovery: dict):
+        """跨路径共享发现 (EA-307.4)"""
+        await self.client.write(
+            uri=f"viking://resources/discoveries/{path_id}",
+            content=json.dumps(discovery),
+            layer="L1"
+        )
+```
+
+### 7.3 配置示例
+
+```yaml
+# conf/evoagent.yaml
+evoagent:
+  openviking:
+    enabled: true
+    server_url: "http://localhost:8080"
+    api_key: ${env:OPENVIKING_API_KEY,""}
+    layers:
+      l0:
+        max_tokens: 100
+        enable: true
+      l1:
+        max_tokens: 2000
+        enable: true
+      l2:
+        enable: false
+```
+
+---
+
+## 8. 实施路线图
+
+| 阶段 | 时间 | 任务 | 交付物 |
+|------|------|------|--------|
+| Phase 1 | 1周 | OpenViking Server 部署 + 客户端集成 | EA-307.1, EA-307.2 |
+| Phase 2 | 1周 | 经验存储 + 跨路径共享 | EA-307.3, EA-307.4 |
+| Phase 3 | 1周 | 记忆自迭代 + 完整测试 | EA-307.5, 集成测试 |
+
+---
+
+*EA-307 设计完成 | 2026-03-13*
