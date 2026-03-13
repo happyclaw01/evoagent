@@ -33,10 +33,10 @@ def _check_consensus(
         (has_consensus, consensus_answer) if consensus reached
         (False, None) if no consensus yet
     """
-    # Filter valid results (successful and non-empty)
+    # Filter valid results (successful and non-empty) - handle None results
     valid_results = [
         r for r in results
-        if r[4].get("status") == "success" and r[1].strip()
+        if r is not None and len(r) > 4 and r[4].get("status") == "success" and r[1].strip()
     ]
     
     if len(valid_results) < early_stop_k:
