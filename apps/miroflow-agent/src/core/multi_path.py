@@ -29,6 +29,33 @@ from .streaming import (
     FileStreamConsumer,
 )
 
+# EA-012: Retry logic
+RETRYABLE_ERROR_PATTERNS = [
+    "rate_limit", "rate limit", "429", "timeout", "timed out",
+    "connection", "ConnectionError", "httpx", "API error",
+    "Service Unavailable", "503", "502", "504",
+    "internal error", "InternalServerError", "quota",
+]
+FALLBACK_STRATEGIES = ["breadth_first", "lateral_thinking"]
+MAX_RETRIES = 2
+
+def _is_retryable_error(error: str) -> bool:
+    """Check if an error is retryable"""
+    error_lower = error.lower()
+    for pattern in RETRYABLE_ERROR_PATTERNS:
+        if pattern.lower() in error_lower:
+            return True
+    return False
+
+def _get_fallback_strategy(original_strategy: str):
+    """Get a fallback strategy different from the original"""
+    for fallback in FALLBACK_STRATEGIES:
+        if fallback != original_strategy:
+            for s in STRATEGY_VARIANTS:
+                if s["name"] == fallback:
+                    return s
+    return None
+
 logger = logging.getLogger(__name__)
 
 
@@ -662,28 +689,51 @@ async def execute_multi_path_pipeline(
                 sub_tms[sub_agent] = ToolManager(sub_mcp_configs, tool_blacklist=sub_blacklist)
         path_sub_managers.append(sub_tms)
 
-    # Launch all paths concurrently
+    # EA-012: Create wrapped tasks with retry logic
     tasks = []
     for i, strategy in enumerate(strategies):
-        # EA-010: Get strategy-specific max_turns, default to config value
         strategy_max_turns = strategy.get("max_turns", None)
         
-        task = _run_single_path(
-            cfg=cfg,
-            task_id=task_id,
-            task_description=task_description,
-            task_file_name=task_file_name,
-            main_agent_tool_manager=path_tool_managers[i],
-            sub_agent_tool_managers=path_sub_managers[i],
-            output_formatter=OutputFormatter(),
-            strategy=strategy,
-            path_index=i,
-            ground_truth=ground_truth,
-            log_dir=log_dir,
-            tool_definitions=tool_definitions,
-            sub_agent_tool_definitions=sub_agent_tool_definitions,
-            max_turns=strategy_max_turns,  # EA-010: Pass custom max_turns
-        )
+        async def run_with_retry(idx: int, strat: Dict, max_trns: Optional[int], retry_count: int = 0):
+            """Run a path with retry on failure"""
+            try:
+                result = await _run_single_path(
+                    cfg=cfg,
+                    task_id=task_id,
+                    task_description=task_description,
+                    task_file_name=task_file_name,
+                    main_agent_tool_manager=path_tool_managers[idx],
+                    sub_agent_tool_managers=path_sub_managers[idx],
+                    output_formatter=OutputFormatter(),
+                    strategy=strat,
+                    path_index=idx,
+                    ground_truth=ground_truth,
+                    log_dir=log_dir,
+                    tool_definitions=tool_definitions,
+                    sub_agent_tool_definitions=sub_agent_tool_definitions,
+                    max_turns=max_trns,
+                )
+                # EA-012: Check for retryable failure
+                if len(result) > 4 and isinstance(result[4], dict):
+                    status = result[4].get("status", "")
+                    error = result[4].get("error", "")
+                    if status == "failed" and retry_count < MAX_RETRIES:
+                        if _is_retryable_error(error):
+                            fallback = _get_fallback_strategy(strat["name"])
+                            if fallback:
+                                master_log.log_step("info", "MultiPath | Retry", 
+                                    f"Path {idx} failed. Retrying with {fallback['name']} (attempt {retry_count + 1})")
+                                return await run_with_retry(idx, fallback, max_trns, retry_count + 1)
+                return result
+            except Exception as e:
+                if retry_count < MAX_RETRIES and _is_retryable_error(str(e)):
+                    fallback = _get_fallback_strategy(strat["name"])
+                    if fallback:
+                        master_log.log_step("info", "MultiPath | Retry", f"Path {idx} exception: {e}. Retrying with {fallback['name']}")
+                        return await run_with_retry(idx, fallback, max_trns, retry_count + 1)
+                raise
+        
+        task = run_with_retry(i, strategy, strategy_max_turns)
         tasks.append(task)
 
     master_log.log_step(
