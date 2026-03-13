@@ -18,6 +18,9 @@ from ..io.output_formatter import OutputFormatter
 from ..llm.factory import ClientFactory
 from ..logging.task_logger import TaskLog, get_utc_plus_8_time
 
+# EA-304: Cost Tracker
+from .cost_tracker import CostTracker, format_cost_report
+
 logger = logging.getLogger(__name__)
 
 
@@ -302,11 +305,40 @@ async def _run_single_path(
         task_log.end_time = get_utc_plus_8_time()
         log_file_path = task_log.save()
 
+        # EA-304: Extract cost data from task_log
+        input_tokens = 0
+        output_tokens = 0
+        tool_calls = 0
+        
+        if hasattr(task_log, "usage_log") and task_log.usage_log:
+            usage = task_log.usage_log
+            if isinstance(usage, dict):
+                input_tokens = usage.get("input_tokens", 0) or usage.get("input", 0)
+                output_tokens = usage.get("output_tokens", 0) or usage.get("output", 0)
+        
+        if hasattr(task_log, "tool_call_count"):
+            tool_calls = task_log.tool_call_count
+        elif hasattr(task_log, "steps_count"):
+            tool_calls = task_log.steps_count
+        
+        # Get model name from config or default
+        model_name = "qwen/qwen3-8b"
+        if hasattr(cfg, "llm") and hasattr(cfg.llm, "model_name"):
+            model_name = cfg.llm.model_name
+        elif hasattr(cfg, "model_name"):
+            model_name = cfg.model_name
+        
         metadata = {
             "strategy": strategy_name,
             "elapsed_seconds": round(elapsed, 2),
             "turns": task_log.steps_count if hasattr(task_log, "steps_count") else 0,
             "status": "success",
+            # EA-304: Cost tracking fields
+            "model": model_name,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "tool_calls": tool_calls,
+            "duration": round(elapsed, 2),
         }
 
         logger.info(
@@ -330,7 +362,17 @@ async def _run_single_path(
             "",
             log_file_path,
             strategy_name,
-            {"strategy": strategy_name, "status": "failed", "error": str(e)},
+            {
+                "strategy": strategy_name, 
+                "status": "failed", 
+                "error": str(e),
+                # EA-304: Cost tracking fields (failed paths have 0 tokens)
+                "model": "qwen/qwen3-8b",
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "tool_calls": 0,
+                "duration": 0.0,
+            },
         )
 
 
@@ -601,6 +643,49 @@ async def execute_multi_path_pipeline(
     best_summary, best_answer, best_log_path = await _vote_best_answer(
         processed_results, task_description, cfg, master_log
     )
+
+    # EA-304: Track costs
+    cost_tracker = CostTracker(log_dir=log_dir)
+    
+    for i, r in enumerate(processed_results):
+        if r and len(r) > 4:
+            # Extract cost data from result metadata
+            metadata = r[4] if isinstance(r[4], dict) else {}
+            
+            cost_tracker.record_path_cost(
+                path_id=f"{task_id}_path{i}_{r[3]}",
+                strategy_name=r[3],
+                model_name=metadata.get("model", "qwen/qwen3-8b"),
+                input_tokens=metadata.get("input_tokens", 0),
+                output_tokens=metadata.get("output_tokens", 0),
+                num_turns=metadata.get("turns", 0),
+                num_tool_calls=metadata.get("tool_calls", 0),
+                duration_seconds=metadata.get("duration", 0.0),
+                status=metadata.get("status", "unknown"),
+            )
+    
+    # Generate and log cost report
+    cost_summary = cost_tracker.get_summary()
+    cost_report = format_cost_report(cost_summary)
+    
+    master_log.log_step(
+        "info",
+        "MultiPath | Cost Report",
+        f"Total cost: ${cost_summary.total_cost_usd:.4f} | "
+        f"Tokens: {cost_summary.total_tokens:,} | "
+        f"Paths: {cost_summary.total_paths}",
+    )
+    
+    # Log recommendations
+    for rec in cost_summary.recommendations:
+        master_log.log_step("info", "Cost | Recommendation", rec)
+    
+    # Save cost data to file
+    cost_file = cost_tracker.save_to_file()
+    logger.info(f"Cost data saved to: {cost_file}")
+    
+    # Add cost info to master log
+    master_log.cost_info = cost_summary.to_dict()
 
     master_log.log_step(
         "info",
