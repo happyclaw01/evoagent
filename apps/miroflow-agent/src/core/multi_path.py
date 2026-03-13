@@ -174,10 +174,12 @@ async def _run_with_early_stopping(
 
 
 # Strategy variants for multi-path exploration
+# EA-010: Each strategy has different max_turns budget
 STRATEGY_VARIANTS = [
     {
         "name": "breadth_first",
         "description": "Broad search strategy",
+        "max_turns": 100,  # Fewer turns - wide but shallow
         "prompt_suffix": (
             "\n\n[Strategy: Breadth-First Exploration]\n"
             "Start by performing multiple diverse searches to gather a wide range of sources. "
@@ -189,6 +191,7 @@ STRATEGY_VARIANTS = [
     {
         "name": "depth_first",
         "description": "Deep investigation strategy",
+        "max_turns": 300,  # More turns - deep exploration
         "prompt_suffix": (
             "\n\n[Strategy: Depth-First Investigation]\n"
             "Focus on finding the most authoritative primary source first. "
@@ -201,6 +204,7 @@ STRATEGY_VARIANTS = [
     {
         "name": "lateral_thinking",
         "description": "Alternative angle strategy",
+        "max_turns": 200,  # Medium turns - creative exploration
         "prompt_suffix": (
             "\n\n[Strategy: Lateral Thinking]\n"
             "Approach the problem from unexpected angles. "
@@ -208,6 +212,19 @@ STRATEGY_VARIANTS = [
             "If direct searches don't work, try searching for related entities, events, or contexts. "
             "Use code execution to compute, verify, or transform data when helpful. "
             "Think creatively about what tools and queries might reveal the answer."
+        ),
+    },
+    # EA-010: New strategy with custom max_turns
+    {
+        "name": "verification_heavy",
+        "description": "Verification-focused strategy",
+        "max_turns": 150,  # Medium-high, focused on verification
+        "prompt_suffix": (
+            "\n\n[Strategy: Verification-Heavy]\n"
+            "After finding an answer, verify it through multiple independent sources. "
+            "Cross-reference dates, numbers, and facts. "
+            "If you find conflicting information, investigate further until you have high confidence. "
+            "Always prefer verifiable facts over unverified claims."
         ),
     },
 ]
@@ -228,6 +245,8 @@ async def _run_single_path(
     log_dir: str = "logs",
     tool_definitions: Optional[List[Dict[str, Any]]] = None,
     sub_agent_tool_definitions: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+    # EA-010: Custom max_turns per strategy (optional override)
+    max_turns: Optional[int] = None,
 ) -> Tuple[str, str, str, str, Dict]:
     """
     Run a single agent path with a specific strategy.
@@ -239,6 +258,19 @@ async def _run_single_path(
 
     strategy_name = strategy["name"]
     path_task_id = f"{task_id}_path{path_index}_{strategy_name}"
+    
+    # EA-010: Override max_turns with strategy-specific value
+    # If max_turns is not provided, use strategy's max_turns or fall back to config
+    if max_turns is None:
+        max_turns = strategy.get("max_turns", None)
+    
+    # Create a modified config with strategy-specific max_turns
+    if max_turns is not None:
+        cfg = OmegaConf.create(OmegaConf.to_container(cfg, resolve=True))
+        if hasattr(cfg, 'agent') and hasattr(cfg.agent, 'main_agent'):
+            cfg.agent.main_agent.max_turns = max_turns
+        elif hasattr(cfg, 'agent'):
+            cfg.agent.max_turns = max_turns
 
     # Create task log for this path
     task_log = TaskLog(
@@ -253,7 +285,8 @@ async def _run_single_path(
     task_log.log_step(
         "info",
         f"MultiPath | Path {path_index}",
-        f"Starting path with strategy: {strategy_name} - {strategy['description']}",
+        f"Starting path with strategy: {strategy_name} - {strategy['description']} "
+        f"(max_turns: {max_turns or 'default'})",
     )
 
     # Set task_log for tool managers
@@ -333,6 +366,8 @@ async def _run_single_path(
             "elapsed_seconds": round(elapsed, 2),
             "turns": task_log.steps_count if hasattr(task_log, "steps_count") else 0,
             "status": "success",
+            # EA-010: Budget allocation
+            "max_turns": max_turns,
             # EA-304: Cost tracking fields
             "model": model_name,
             "input_tokens": input_tokens,
@@ -578,6 +613,9 @@ async def execute_multi_path_pipeline(
     # Launch all paths concurrently
     tasks = []
     for i, strategy in enumerate(strategies):
+        # EA-010: Get strategy-specific max_turns, default to config value
+        strategy_max_turns = strategy.get("max_turns", None)
+        
         task = _run_single_path(
             cfg=cfg,
             task_id=task_id,
@@ -592,6 +630,7 @@ async def execute_multi_path_pipeline(
             log_dir=log_dir,
             tool_definitions=tool_definitions,
             sub_agent_tool_definitions=sub_agent_tool_definitions,
+            max_turns=strategy_max_turns,  # EA-010: Pass custom max_turns
         )
         tasks.append(task)
 
