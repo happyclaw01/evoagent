@@ -40,8 +40,12 @@ async def amain(cfg: DictConfig) -> None:
 
     # Number of parallel paths (from env or default 3)
     num_paths = int(os.environ.get("NUM_PATHS", "3"))
+    
+    # EA-009: Early stopping configuration
+    early_stop_k = int(os.environ.get("EARLY_STOP_K", "2"))
+    early_stop_threshold = float(os.environ.get("EARLY_STOP_THRESHOLD", "1.0"))
 
-    logger.info(f"Running multi-path pipeline with {num_paths} paths")
+    logger.info(f"Running multi-path pipeline with {num_paths} paths, early_stop_k={early_stop_k}, threshold={early_stop_threshold}")
 
     # Execute multi-path pipeline
     final_summary, final_boxed_answer, log_file_path = (
@@ -55,6 +59,8 @@ async def amain(cfg: DictConfig) -> None:
             output_formatter=output_formatter,
             log_dir=cfg.debug_dir,
             num_paths=num_paths,
+            early_stop_k=early_stop_k,
+            early_stop_threshold=early_stop_threshold,
         )
     )
 

@@ -40,10 +40,15 @@ async def execute_multi_path_task_pipeline(
     stream_queue: Optional[Any] = None,
     tool_definitions: Optional[List[Dict[str, Any]]] = None,
     sub_agent_tool_definitions: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+    # EA-009: Early stopping parameters
+    early_stop_k: int = 2,
+    early_stop_threshold: float = 1.0,
 ):
     """
     Multi-path variant of execute_task_pipeline.
     Runs N parallel agent paths with different strategies and votes on the best answer.
+    
+    EA-009: Early stopping - stops remaining paths when K paths reach consensus.
     """
     from .multi_path import execute_multi_path_pipeline
 
@@ -60,6 +65,8 @@ async def execute_multi_path_task_pipeline(
         num_paths=num_paths,
         tool_definitions=tool_definitions,
         sub_agent_tool_definitions=sub_agent_tool_definitions,
+        early_stop_k=early_stop_k,
+        early_stop_threshold=early_stop_threshold,
     )
 
 

@@ -20,6 +20,156 @@ from ..logging.task_logger import TaskLog, get_utc_plus_8_time
 
 logger = logging.getLogger(__name__)
 
+
+def _check_consensus(
+    results: List[Tuple],
+    early_stop_k: int,
+    early_stop_threshold: float,
+) -> Tuple[bool, Optional[str]]:
+    """
+    Check if consensus has been reached among completed paths.
+    
+    Returns:
+        (has_consensus, consensus_answer) if consensus reached
+        (False, None) if no consensus yet
+    """
+    # Filter valid results (successful and non-empty)
+    valid_results = [
+        r for r in results
+        if r[4].get("status") == "success" and r[1].strip()
+    ]
+    
+    if len(valid_results) < early_stop_k:
+        return False, None
+    
+    # Count answer frequencies (normalized)
+    answers = [r[1].strip().lower() for r in valid_results]
+    from collections import Counter
+    answer_counts = Counter(answers)
+    
+    most_common_answer, most_common_count = answer_counts.most_common(1)[0]
+    agreement_ratio = most_common_count / len(valid_results)
+    
+    # Check if we have enough agreements
+    # Logic: if K or more paths agree (regardless of total ratio), stop early
+    # The threshold is used to require minimum agreement among the top answers
+    if most_common_count >= early_stop_k:
+        # When early_stop_threshold < 1.0, use it; otherwise require full agreement
+        if early_stop_threshold >= 1.0:
+            # For threshold=1.0, require that all valid results agree
+            if agreement_ratio >= 1.0:
+                return True, valid_results[0][1]
+        else:
+            # For threshold < 1.0, use it (e.g., 0.66 means 2/3 agreement)
+            if agreement_ratio >= early_stop_threshold:
+                return True, valid_results[0][1]
+    
+    return False, None
+
+
+async def _run_with_early_stopping(
+    tasks: List,
+    strategies: List[Dict],
+    early_stop_k: int,
+    early_stop_threshold: float,
+    master_log,
+    log_dir: str,
+) -> List:
+    """
+    Run tasks with early stopping: cancel remaining tasks when consensus is reached.
+    
+    EA-009: Early Stopping Mechanism
+    """
+    results = [None] * len(tasks)
+    pending = set(range(len(tasks)))
+    completed_count = 0
+    
+    # Create asyncio Task objects
+    async_tasks = [asyncio.create_task(t) for t in tasks]
+    
+    while pending:
+        # Wait for any task to complete
+        done, still_pending = await asyncio.wait(
+            async_tasks,
+            return_when=asyncio.FIRST_COMPLETED
+        )
+        
+        # Process completed tasks
+        for task in done:
+            idx = async_tasks.index(task)
+            completed_count += 1
+            
+            try:
+                result = task.result()
+                results[idx] = result
+            except Exception as e:
+                # Convert exception to failed result
+                results[idx] = (
+                    f"Path {idx} exception: {str(e)}",
+                    "",
+                    "",
+                    strategies[idx]["name"],
+                    {"strategy": strategies[idx]["name"], "status": "failed", "error": str(e)},
+                )
+            
+            pending.discard(idx)
+            
+            # Log completion
+            r = results[idx]
+            master_log.log_step(
+                "info",
+                f"MultiPath | Path {idx} Complete",
+                f"Strategy: {r[3]} | Status: {r[4].get('status')} | "
+                f"Answer: {r[1][:100] if r[1] else '(empty)'} | "
+                f"Completed: {completed_count}/{len(tasks)}",
+            )
+            
+            # Check for early stopping consensus
+            if len(pending) > 0:  # Only check if there are remaining tasks
+                has_consensus, consensus_answer = _check_consensus(
+                    results, early_stop_k, early_stop_threshold
+                )
+                
+                if has_consensus:
+                    master_log.log_step(
+                        "info",
+                        "MultiPath | Early Stopping",
+                        f"Consensus reached: {early_stop_k}+ paths agree on answer. "
+                        f"Cancelling {len(pending)} remaining paths.",
+                    )
+                    
+                    # Cancel all remaining tasks
+                    for remaining_idx in pending:
+                        async_tasks[remaining_idx].cancel()
+                    
+                    # Wait for cancellation to complete
+                    await asyncio.gather(*[async_tasks[i] for i in pending], 
+                                         return_exceptions=True)
+                    
+                    # Fill in remaining results as cancelled
+                    for remaining_idx in pending:
+                        results[remaining_idx] = (
+                            f"Path {remaining_idx} cancelled (early stopping)",
+                            "",
+                            "",
+                            strategies[remaining_idx]["name"],
+                            {"strategy": strategies[remaining_idx]["name"], 
+                             "status": "cancelled", 
+                             "reason": "early_stopping"},
+                        )
+                    
+                    break
+        
+        # Update pending set after potential cancellations
+        pending = {i for i in range(len(async_tasks)) 
+                   if not async_tasks[i].done() and i in pending}
+        
+        if not pending:
+            break
+    
+    return results
+
+
 # Strategy variants for multi-path exploration
 STRATEGY_VARIANTS = [
     {
@@ -318,6 +468,9 @@ async def execute_multi_path_pipeline(
     strategies: Optional[List[Dict]] = None,
     tool_definitions: Optional[List[Dict[str, Any]]] = None,
     sub_agent_tool_definitions: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+    # EA-009: Early stopping parameters
+    early_stop_k: int = 2,
+    early_stop_threshold: float = 1.0,
 ) -> Tuple[str, str, str]:
     """
     Execute multiple parallel agent paths and select the best answer.
@@ -403,26 +556,38 @@ async def execute_multi_path_pipeline(
     master_log.log_step(
         "info",
         "MultiPath | Running",
-        f"All {len(tasks)} paths launched concurrently",
+        f"All {len(tasks)} paths launched concurrently (early_stop_k={early_stop_k}, threshold={early_stop_threshold})",
     )
 
-    # Wait for all paths to complete
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-
-    # Process results - convert exceptions to failed results
-    processed_results = []
-    for i, result in enumerate(results):
-        if isinstance(result, Exception):
-            logger.error(f"Path {i} raised exception: {result}")
-            processed_results.append((
-                f"Path {i} exception: {str(result)}",
-                "",
-                "",
-                strategies[i]["name"],
-                {"strategy": strategies[i]["name"], "status": "failed", "error": str(result)},
-            ))
-        else:
-            processed_results.append(result)
+    # EA-009: Run with early stopping
+    # If early_stop_k > number of paths, fall back to gather (no early stopping)
+    if early_stop_k > len(tasks) or early_stop_threshold <= 0:
+        # Standard gather without early stopping
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Process results - convert exceptions to failed results
+        processed_results = []
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                logger.error(f"Path {i} raised exception: {result}")
+                processed_results.append((
+                    f"Path {i} exception: {str(result)}",
+                    "",
+                    "",
+                    strategies[i]["name"],
+                    {"strategy": strategies[i]["name"], "status": "failed", "error": str(result)},
+                ))
+            else:
+                processed_results.append(result)
+    else:
+        # Use early stopping
+        raw_results = await _run_with_early_stopping(
+            tasks, strategies, early_stop_k, early_stop_threshold, 
+            master_log, log_dir
+        )
+        
+        # Post-process results (already in correct format from _run_with_early_stopping)
+        processed_results = raw_results
 
     # Log all results
     for i, r in enumerate(processed_results):
