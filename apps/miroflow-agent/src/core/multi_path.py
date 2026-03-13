@@ -21,6 +21,14 @@ from ..logging.task_logger import TaskLog, get_utc_plus_8_time
 # EA-304: Cost Tracker
 from .cost_tracker import CostTracker, format_cost_report
 
+# EA-011: Streaming
+from .streaming import (
+    get_stream_manager, 
+    StreamEventType,
+    ConsoleStreamConsumer,
+    FileStreamConsumer,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -140,6 +148,17 @@ async def _run_with_early_stopping(
                         f"Consensus reached: {early_stop_k}+ paths agree on answer. "
                         f"Cancelling {len(pending)} remaining paths.",
                     )
+                    
+                    # EA-011: Stream consensus reached
+                    from .streaming import get_stream_manager, StreamEvent, StreamEventType
+                    stream_mgr = get_stream_manager()
+                    consensus_event = StreamEvent(
+                        event_type=StreamEventType.CONSENSUS,
+                        path_id=task_id,
+                        content=f"Early stopping: consensus reached ({early_stop_k}+ paths agree)",
+                        metadata={"answer": consensus_answer[:200] if consensus_answer else ""},
+                    )
+                    await stream_mgr.broadcast(consensus_event)
                     
                     # Cancel all remaining tasks
                     for remaining_idx in pending:
@@ -324,12 +343,21 @@ async def _run_single_path(
 
         # Run the agent
         start_time = asyncio.get_event_loop().time()
+        
+        # EA-011: Stream path start
+        from .streaming import get_stream_manager
+        stream = get_stream_manager().create_path_stream(path_task_id, strategy_name, task_description)
+        await stream.start()
+        
         final_summary, final_boxed_answer = await orchestrator.run_main_agent(
             task_description=task_description,
             task_file_name=task_file_name,
             task_id=path_task_id,
         )
         elapsed = asyncio.get_event_loop().time() - start_time
+        
+        # EA-011: Stream path end
+        await stream.end(final_answer=final_boxed_answer, status="success")
 
         llm_client.close()
 
@@ -389,6 +417,15 @@ async def _run_single_path(
         task_log.error = error_details
         task_log.end_time = get_utc_plus_8_time()
         log_file_path = task_log.save()
+
+        # EA-011: Stream error
+        try:
+            stream = get_stream_manager().get_path_stream(path_task_id)
+            if stream:
+                await stream.error(f"Path failed: {str(e)}", error_details[:500])
+                await stream.end(final_answer="", status="failed")
+        except:
+            pass
 
         logger.warning(f"Path {path_index} ({strategy_name}) failed: {e}")
 
@@ -588,6 +625,21 @@ async def execute_multi_path_pipeline(
         "MultiPath | Start",
         f"Launching {len(strategies)} parallel paths for task: {task_id}",
     )
+    
+    # EA-011: Initialize streaming
+    stream_manager = get_stream_manager()
+    stream_manager.add_consumer(ConsoleStreamConsumer(verbose=True))
+    stream_manager.add_consumer(FileStreamConsumer(Path(log_dir) / "stream.jsonl"))
+    
+    # Broadcast task start to all streams
+    from .streaming import StreamEvent
+    start_event = StreamEvent(
+        event_type=StreamEventType.PATH_START,
+        path_id=f"{task_id}_multipath",
+        content=f"Starting multi-path task: {task_id}",
+        metadata={"num_paths": len(strategies), "task_description": task_description},
+    )
+    await stream_manager.broadcast(start_event)
 
     # Create independent tool managers for each path to avoid state conflicts
     # Each path needs its own ToolManager instances
