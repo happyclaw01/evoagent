@@ -112,13 +112,14 @@ def create_mcp_server_parameters(cfg: DictConfig, agent_cfg: DictConfig):
         )
 
     if agent_cfg.get("tools", None) is not None and "tool-python" in agent_cfg["tools"]:
+        # Use local Python server instead of E2B cloud sandbox
         configs.append(
             {
                 "name": "tool-python",
                 "params": StdioServerParameters(
                     command=sys.executable,
-                    args=["-m", "miroflow_tools.mcp_servers.python_mcp_server"],
-                    env={"E2B_API_KEY": E2B_API_KEY},
+                    args=["-m", "miroflow_tools.mcp_servers.python_mcp_server_local"],
+                    env={"LOGS_DIR": os.environ.get("LOGS_DIR", "../../logs")},
                 ),
             }
         )
@@ -271,11 +272,12 @@ def create_mcp_server_parameters(cfg: DictConfig, agent_cfg: DictConfig):
                     command=sys.executable,
                     args=[
                         "-m",
-                        "miroflow_tools.dev_mcp_servers.search_and_scrape_webpage",
+                        "miroflow_tools.dev_mcp_servers.search_and_scrape_webpage_local",
                     ],
                     env={
-                        "SERPER_API_KEY": SERPER_API_KEY,
-                        "SERPER_BASE_URL": SERPER_BASE_URL,
+                        "JINA_API_KEY": JINA_API_KEY or "",
+                        "JINA_BASE_URL": JINA_BASE_URL or "",
+                        "HTTPS_PROXY": os.environ.get("HTTPS_PROXY", ""),
                     },
                 ),
             }

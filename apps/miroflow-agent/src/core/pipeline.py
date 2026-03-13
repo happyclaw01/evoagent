@@ -26,6 +26,43 @@ from ..logging.task_logger import (
 print("[debug] pipeline.py: core imports done (before orchestrator)", flush=True)
 
 
+async def execute_multi_path_task_pipeline(
+    cfg: DictConfig,
+    task_id: str,
+    task_file_name: str,
+    task_description: str,
+    main_agent_tool_manager: ToolManager,
+    sub_agent_tool_managers: List[Dict[str, ToolManager]],
+    output_formatter: OutputFormatter,
+    ground_truth: Optional[Any] = None,
+    log_dir: str = "logs",
+    num_paths: int = 3,
+    stream_queue: Optional[Any] = None,
+    tool_definitions: Optional[List[Dict[str, Any]]] = None,
+    sub_agent_tool_definitions: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+):
+    """
+    Multi-path variant of execute_task_pipeline.
+    Runs N parallel agent paths with different strategies and votes on the best answer.
+    """
+    from .multi_path import execute_multi_path_pipeline
+
+    return await execute_multi_path_pipeline(
+        cfg=cfg,
+        task_id=task_id,
+        task_description=task_description,
+        task_file_name=task_file_name,
+        main_agent_tool_manager=main_agent_tool_manager,
+        sub_agent_tool_managers=sub_agent_tool_managers,
+        output_formatter=output_formatter,
+        ground_truth=ground_truth,
+        log_dir=log_dir,
+        num_paths=num_paths,
+        tool_definitions=tool_definitions,
+        sub_agent_tool_definitions=sub_agent_tool_definitions,
+    )
+
+
 async def execute_task_pipeline(
     cfg: DictConfig,
     task_id: str,
