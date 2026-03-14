@@ -1,6 +1,15 @@
 # Copyright (c) 2025 MiroMind
 # Multi-Path Exploration Layer (EvoAgent - Layer 1)
 #
+# EA-001: Multi-path scheduler — runs N parallel agent paths on the same task
+# EA-002: Strategy variant definitions — pluggable strategy templates (see STRATEGY_VARIANTS)
+# EA-003: LLM voting — LLM Judge selects best answer when paths disagree (see _vote_best_answer)
+# EA-004: Majority vote fast path — skip LLM Judge when paths agree (see _vote_best_answer)
+# EA-005: Independent ToolManagers — each path owns its own ToolManager (see execute_multi_path_pipeline)
+# EA-006: Path-level log isolation — each path generates independent TaskLog (see _run_single_path)
+# EA-007: Master log aggregation — scheduler aggregates all path results (see execute_multi_path_pipeline)
+# EA-008: Dynamic path count — NUM_PATHS env var / config controls parallelism
+#
 # Runs N parallel agent paths with different search strategies on the same task,
 # then selects the best answer via cross-validation voting.
 
@@ -219,8 +228,9 @@ async def _run_with_early_stopping(
     return results
 
 
-# Strategy variants for multi-path exploration
-# EA-010: Each strategy has different max_turns budget
+# EA-002: Strategy variant definitions
+# Each strategy is a pluggable template with name, description, prompt_suffix.
+# EA-010: Each strategy also has a max_turns budget for path-level cost control.
 STRATEGY_VARIANTS = [
     {
         "name": "breadth_first",
@@ -282,10 +292,10 @@ async def _run_single_path(
     task_id: str,
     task_description: str,
     task_file_name: str,
-    main_agent_tool_manager: ToolManager,
+    main_agent_tool_manager: ToolManager,  # EA-005: Independent ToolManager per path
     sub_agent_tool_managers: Dict[str, ToolManager],
     output_formatter: OutputFormatter,
-    strategy: Dict[str, str],
+    strategy: Dict[str, str],  # EA-002: Strategy variant definition
     path_index: int,
     ground_truth: Optional[Any] = None,
     log_dir: str = "logs",
@@ -295,7 +305,8 @@ async def _run_single_path(
     max_turns: Optional[int] = None,
 ) -> Tuple[str, str, str, str, Dict]:
     """
-    Run a single agent path with a specific strategy.
+    EA-001: Run a single agent path with a specific strategy.
+    EA-006: Each path creates its own TaskLog for isolated logging.
     
     Returns:
         Tuple of (final_summary, final_boxed_answer, log_file_path, strategy_name, metadata)
@@ -318,7 +329,7 @@ async def _run_single_path(
         elif hasattr(cfg, 'agent'):
             cfg.agent.max_turns = max_turns
 
-    # Create task log for this path
+    # EA-006: Create isolated task log for this path
     task_log = TaskLog(
         log_dir=log_dir,
         task_id=path_task_id,
@@ -359,7 +370,8 @@ async def _run_single_path(
             sub_agent_tool_definitions=sub_agent_tool_definitions,
         )
 
-        # Inject strategy into the orchestrator's prompt generation
+        # EA-002: Inject strategy into the orchestrator's prompt generation
+        # Strategy is applied via prompt suffix (DD-001: prompt injection, not code logic)
         original_generate = llm_client.generate_agent_system_prompt
 
         def strategy_augmented_prompt(date, mcp_servers):
@@ -482,8 +494,9 @@ async def _vote_best_answer(
     task_log: TaskLog,
 ) -> Tuple[str, str, str]:
     """
-    Cross-validate answers from multiple paths and select the best one.
-    Uses majority voting + LLM judge if answers differ.
+    EA-003: LLM voting — cross-validate answers and select the best one.
+    EA-004: Majority vote fast path — skip LLM Judge when paths agree.
+    DD-003: Majority vote first + LLM Judge fallback (zero cost when consensus).
     
     Returns:
         Tuple of (best_summary, best_answer, best_log_path)
@@ -512,7 +525,7 @@ async def _vote_best_answer(
     most_common_answer, most_common_count = answer_counts.most_common(1)[0]
 
     if most_common_count > 1:
-        # Majority vote - multiple paths agree
+        # EA-004: Majority vote fast path — multiple paths agree, skip LLM Judge
         task_log.log_step(
             "info",
             "MultiPath | Vote | Majority",
@@ -523,7 +536,7 @@ async def _vote_best_answer(
             if r[1].strip().lower() == most_common_answer:
                 return r[0], r[1], r[2]
 
-    # All answers differ - use LLM judge
+    # EA-003: All answers differ — invoke LLM Judge to select best answer
     task_log.log_step(
         "info",
         "MultiPath | Vote | LLM Judge",
@@ -605,7 +618,7 @@ async def execute_multi_path_pipeline(
     output_formatter: OutputFormatter,
     ground_truth: Optional[Any] = None,
     log_dir: str = "logs",
-    num_paths: int = 3,
+    num_paths: int = 3,  # EA-008: Dynamic path count via NUM_PATHS env or config
     strategies: Optional[List[Dict]] = None,
     tool_definitions: Optional[List[Dict[str, Any]]] = None,
     sub_agent_tool_definitions: Optional[Dict[str, List[Dict[str, Any]]]] = None,
@@ -614,7 +627,9 @@ async def execute_multi_path_pipeline(
     early_stop_threshold: float = 1.0,
 ) -> Tuple[str, str, str]:
     """
-    Execute multiple parallel agent paths and select the best answer.
+    EA-001: Multi-path scheduler — execute N parallel agent paths and select best answer.
+    EA-007: Master log aggregation — all path results aggregated to master_log.
+    EA-008: Path count is configurable via num_paths parameter.
     
     Args:
         cfg: Hydra configuration
@@ -637,7 +652,7 @@ async def execute_multi_path_pipeline(
     if strategies is None:
         strategies = STRATEGY_VARIANTS[:num_paths]
 
-    # Create master task log
+    # EA-007: Create master task log for aggregation
     master_log = TaskLog(
         log_dir=log_dir,
         task_id=f"{task_id}_multipath",
@@ -668,8 +683,8 @@ async def execute_multi_path_pipeline(
     )
     await stream_manager.broadcast(start_event)
 
-    # Create independent tool managers for each path to avoid state conflicts
-    # Each path needs its own ToolManager instances
+    # EA-005: Create independent ToolManagers for each path to avoid state conflicts
+    # DD-002: Each path uses independent ToolManager (MCP connections are stateful)
     path_tool_managers = []
     path_sub_managers = []
     for i in range(len(strategies)):

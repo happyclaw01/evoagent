@@ -1,8 +1,9 @@
 # Copyright (c) 2025 MiroMind
-# Multi-Path Agent Entry Point
+# Multi-Path Agent Entry Point (EvoAgent Layer 1)
 #
-# Runs the same task through N parallel agent paths with different strategies,
-# then votes on the best answer.
+# EA-001: Runs the same task through N parallel agent paths with different strategies,
+#          then votes on the best answer.
+# EA-008: Path count configurable via NUM_PATHS env var or num_paths Hydra override.
 #
 # Usage:
 #   uv run python main_multipath.py llm=openrouter-local agent=single_agent
@@ -38,7 +39,7 @@ async def amain(cfg: DictConfig) -> None:
     task_description = "What is the title of today's arxiv paper in computer science?"
     task_file_name = ""
 
-    # Number of parallel paths (from env or default 3)
+    # EA-008: Number of parallel paths (from env or default 3)
     num_paths = int(os.environ.get("NUM_PATHS", "3"))
     
     # EA-009: Early stopping configuration

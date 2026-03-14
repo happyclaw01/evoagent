@@ -45,10 +45,12 @@ async def execute_multi_path_task_pipeline(
     early_stop_threshold: float = 1.0,
 ):
     """
-    Multi-path variant of execute_task_pipeline.
-    Runs N parallel agent paths with different strategies and votes on the best answer.
-    
-    EA-009: Early stopping - stops remaining paths when K paths reach consensus.
+    EA-001: Multi-path variant of execute_task_pipeline.
+    EA-002: Runs N parallel agent paths with different strategies.
+    EA-003/EA-004: Votes on the best answer via majority vote + LLM Judge.
+    EA-005: Each path uses independent ToolManagers (DD-002).
+    EA-008: num_paths controls parallelism.
+    EA-009: Early stopping — stops remaining paths when K paths reach consensus.
     """
     from .multi_path import execute_multi_path_pipeline
 

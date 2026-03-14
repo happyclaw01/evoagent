@@ -173,7 +173,7 @@ class TestVotingMechanism(unittest.TestCase):
 
 
 class TestStrategyInjection(unittest.TestCase):
-    """EA-403: Test strategy injection into prompts"""
+    """EA-002: Test strategy injection into prompts (DD-001: prompt suffix injection)"""
 
     def setUp(self):
         """Set up test fixtures"""
@@ -305,7 +305,7 @@ class TestTaskLogIsolation(unittest.TestCase):
 
 
 class TestIntegrationScenarios(unittest.TestCase):
-    """Integration scenarios combining multiple features"""
+    """EA-003/EA-004/EA-005/EA-007: Integration scenarios combining multiple features"""
 
     def test_full_voting_flow_with_majority(self):
         """Test: Complete voting flow when majority exists"""
