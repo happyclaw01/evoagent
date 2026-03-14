@@ -6,7 +6,8 @@
 > **分支**: `main`  
 > **创建日期**: 2026-03-13  
 > **最后更新**: 2026-03-14  
-> **设计参考**: Self-Improving Agent (ClawHub: pskoett/self-improving-agent), OpenViking (volcengine)
+> **设计参考**: Self-Improving Agent (ClawHub: pskoett/self-improving-agent), OpenViking (volcengine), 谢一凡硕士论文 (SJTU, 2025)
+> **研究日志**: `docs/research-log/` (记录设计思考过程，为论文写作积累素材)
 
 ---
 
@@ -723,3 +724,40 @@ docs/design/
 | **Explore（探索）** | 尝试低频/新策略以发现更优方案 |
 | **Evolution Signal（进化信号）** | 触发新策略生成的条件 |
 | **Self-Iteration（自迭代）** | EA-307.5 周期性聚合分析，驱动整个进化循环 |
+
+---
+
+## 18. 外部研究支撑
+
+### 18.1 谢一凡硕士论文 (上海交通大学, 2025)
+
+**论文**: 《基于大语言模型的金融问答研究》
+
+**核心发现对 EvoAgent 的影响**:
+
+| 论文发现 | EvoAgent 影响 | 对应模块 |
+|---------|--------------|---------|
+| CoT 效果与任务复杂度正相关 | 验证 EA-104 自适应选择的理论基础 | EA-104 |
+| 辩论系统 (92.86%) > 简单投票 (87.14%) | 验证 EA-003 LLM Judge 优于纯多数投票 | EA-003 |
+| 裁判模型选择影响系统性能 | EA-003 应支持可配置 Judge 模型 | EA-003 |
+| 共识性错误是系统瓶颈 | Explore 机制 + 外部知识验证 (EA-307) | EA-104, EA-307 |
+| 裁判被"专业包装"误导 | Judge prompt 强调实质准确性 > 表述自信度 | EA-003 |
+
+**提问框架借鉴**:
+
+| 框架 | 来源 | 应用场景 |
+|------|------|---------|
+| CoT 五步模板 | 论文第4章 | EA-108 经验提取分析结构 |
+| 辩论五阶段流程 | 论文第5章 | EA-307.5 自迭代评估流程 |
+| 三类错误分类 | 论文第5章 | EA-108 Learning Entry 的 Pattern-Key |
+
+### 18.2 相关文献索引
+
+| 文献 | 核心贡献 | 与 EvoAgent 关系 |
+|------|---------|-----------------|
+| Wei et al. (2022) - CoT | 思维链推理 | EA-002 策略 prompt 设计理论基础 |
+| Wang et al. (2022) - Self-Consistency | 多路径采样 + 多数投票 | EA-004 多数投票的理论来源 |
+| Du et al. (2023) - Multi-Agent Debate | 多智能体辩论框架 | EA-003 LLM Judge 的理论来源 |
+| Yao et al. (2023) - ToT | 思维树多路径探索 | EA-001 多路径调度的理论基础 |
+| OpenViking (2025) | 文件系统范式管理 Agent 上下文 | EA-307 存储架构 |
+| Self-Improving Agent (pskoett) | 结构化经验记录 + 三层晋升 | EA-108 经验提取设计 |
