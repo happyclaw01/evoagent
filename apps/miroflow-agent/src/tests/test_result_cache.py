@@ -12,7 +12,22 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 def run_async(coro):
     """Helper to run async tests."""
-    return asyncio.get_event_loop().run_until_complete(coro)
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    if loop and loop.is_running():
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(coro)
+        finally:
+            loop.close()
+    else:
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(coro)
+        finally:
+            loop.close()
 
 
 class TestCacheKey(unittest.TestCase):
