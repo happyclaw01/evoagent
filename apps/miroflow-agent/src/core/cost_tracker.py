@@ -12,27 +12,18 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any
 
 
-# Model pricing (per 1M tokens) - can be extended with more models
-# Prices are in USD
+# Model pricing (per 1M tokens) - Claude Max direct API
+# Claude Max has quota limits, not per-token billing
+# Prices listed here are Anthropic's standard API rates for reference/tracking
 MODEL_PRICING = {
-    # OpenRouter / OpenAI compatible models (both full and short names)
-    "qwen/qwen3-8b": {"input": 0.07, "output": 0.14},  # Qwen3-8B
-    "qwen3-8b": {"input": 0.07, "output": 0.14},
-    "qwen/qwen3-30b": {"input": 0.14, "output": 0.28},
-    "qwen3-30b": {"input": 0.14, "output": 0.28},
-    "qwen/qwen3-72b": {"input": 0.35, "output": 0.70},
-    "qwen3-72b": {"input": 0.35, "output": 0.70},
-    "openai/gpt-4o": {"input": 2.50, "output": 10.00},
-    "openai/gpt-4o-mini": {"input": 0.15, "output": 0.60},
-    "anthropic/claude-opus-4-6": {"input": 15.00, "output": 75.00},
-    "anthropic/claude-sonnet-4-5": {"input": 3.00, "output": 15.00},
-    "anthropic/claude-haiku-3-5": {"input": 0.80, "output": 4.00},
-    "google/gemini-2.0-flash": {"input": 0.00, "output": 0.00},  # Free
-    "google/gemini-pro": {"input": 0.125, "output": 0.125},
-    "meta-llama/llama-3.3-70b": {"input": 0.88, "output": 0.88},
-    "deepseek/deepseek-chat": {"input": 0.14, "output": 0.28},
+    # Anthropic Claude models (direct API)
+    "claude-sonnet-4-20250514": {"input": 3.00, "output": 15.00},
+    "claude-sonnet-4-5": {"input": 3.00, "output": 15.00},
+    "claude-opus-4-6": {"input": 15.00, "output": 75.00},
+    "claude-haiku-3-5": {"input": 0.80, "output": 4.00},
+    "claude-3-7-sonnet-20250219": {"input": 3.00, "output": 15.00},
     # Default fallback pricing
-    "default": {"input": 1.00, "output": 3.00},
+    "default": {"input": 3.00, "output": 15.00},
 }
 
 
@@ -89,7 +80,7 @@ class CostTracker:
         tracker.record_path_cost(
             path_id="path_0_breadth_first",
             strategy_name="breadth_first",
-            model_name="qwen/qwen3-8b",
+            model_name="claude-sonnet-4-20250514",
             input_tokens=5000,
             output_tokens=2000,
             num_turns=5,
@@ -113,7 +104,7 @@ class CostTracker:
         if model_name in MODEL_PRICING:
             return MODEL_PRICING[model_name]
         
-        # Try partial match (e.g., "qwen/qwen3-8b" should match)
+        # Try partial match (e.g., "claude-sonnet-4-20250514" should match)
         for key in MODEL_PRICING:
             if key != "default" and key.lower() in model_name.lower():
                 return MODEL_PRICING[key]
@@ -324,7 +315,7 @@ class CostTracker:
                         output_tokens = usage.get("output", 0)
                     
                     # Get model name
-                    model_name = usage.get("model", "qwen/qwen3-8b")
+                    model_name = usage.get("model", "claude-sonnet-4-20250514")
                     
                     # Get status
                     status = log_data.get("status", "unknown")

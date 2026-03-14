@@ -13,27 +13,26 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 class TestCostCalculation(unittest.TestCase):
     """Test cost calculation logic"""
 
-    def test_calculate_cost_for_qwen(self):
-        """Test cost calculation for Qwen3-8B model"""
+    def test_calculate_cost_for_claude_sonnet(self):
+        """Test cost calculation for Claude Sonnet 4 model"""
         from src.core.cost_tracker import CostTracker
         
         tracker = CostTracker()
         
-        # Qwen3-8B: $0.07/1M input, $0.14/1M output
-        # 1000 input + 1000 output = 1K each
-        cost = tracker._calculate_cost("qwen/qwen3-8b", 1000, 1000)
+        # Claude Sonnet 4: $3/1M input, $15/1M output
+        cost = tracker._calculate_cost("claude-sonnet-4-20250514", 1000, 1000)
         
-        expected = (1000 / 1_000_000 * 0.07) + (1000 / 1_000_000 * 0.14)
+        expected = (1000 / 1_000_000 * 3.0) + (1000 / 1_000_000 * 15.0)
         self.assertAlmostEqual(cost, expected, places=6)
     
-    def test_calculate_cost_for_claude(self):
-        """Test cost calculation for Claude"""
+    def test_calculate_cost_for_claude_opus(self):
+        """Test cost calculation for Claude Opus"""
         from src.core.cost_tracker import CostTracker
         
         tracker = CostTracker()
         
         # Claude Opus: $15/1M input, $75/1M output
-        cost = tracker._calculate_cost("anthropic/claude-opus-4-6", 1000, 1000)
+        cost = tracker._calculate_cost("claude-opus-4-6", 1000, 1000)
         
         expected = (1000 / 1_000_000 * 15) + (1000 / 1_000_000 * 75)
         self.assertAlmostEqual(cost, expected, places=6)
@@ -46,8 +45,8 @@ class TestCostCalculation(unittest.TestCase):
         
         cost = tracker._calculate_cost("unknown/model-xyz", 1000, 1000)
         
-        # Default: $1.00 input, $3.00 output
-        expected = (1000 / 1_000_000 * 1.0) + (1000 / 1_000_000 * 3.0)
+        # Default: $3.00 input, $15.00 output (same as Sonnet)
+        expected = (1000 / 1_000_000 * 3.0) + (1000 / 1_000_000 * 15.0)
         self.assertAlmostEqual(cost, expected, places=6)
     
     def test_calculate_cost_partial_match(self):
@@ -56,10 +55,10 @@ class TestCostCalculation(unittest.TestCase):
         
         tracker = CostTracker()
         
-        # Should match "qwen3-8b" from "qwen/qwen3-8b"
-        cost = tracker._calculate_cost("qwen3-8b", 1000, 1000)
+        # Should match "claude-sonnet-4-5" via partial match
+        cost = tracker._calculate_cost("claude-sonnet-4-5", 1000, 1000)
         
-        expected = (1000 / 1_000_000 * 0.07) + (1000 / 1_000_000 * 0.14)
+        expected = (1000 / 1_000_000 * 3.0) + (1000 / 1_000_000 * 15.0)
         self.assertAlmostEqual(cost, expected, places=6)
 
 
@@ -87,16 +86,15 @@ class TestPathCost(unittest.TestCase):
         pc = PathCost(
             path_id="test_1",
             strategy_name="breadth_first",
-            model_name="qwen/qwen3-8b",
+            model_name="claude-sonnet-4-20250514",
             input_tokens=1000,
             output_tokens=500,
-            cost_usd=0.000105,
+            cost_usd=0.0105,
         )
         
         d = pc.to_dict()
         
         self.assertEqual(d["path_id"], "test_1")
-        # Note: total_tokens is a property, not stored in dict
         self.assertEqual(d["input_tokens"], 1000)
         self.assertEqual(d["output_tokens"], 500)
 
@@ -113,7 +111,7 @@ class TestCostTrackerRecord(unittest.TestCase):
         result = tracker.record_path_cost(
             path_id="path_0",
             strategy_name="breadth_first",
-            model_name="qwen/qwen3-8b",
+            model_name="claude-sonnet-4-20250514",
             input_tokens=5000,
             output_tokens=2000,
             num_turns=5,
@@ -124,7 +122,7 @@ class TestCostTrackerRecord(unittest.TestCase):
         
         self.assertEqual(result.path_id, "path_0")
         self.assertEqual(result.cost_usd, 
-            (5000/1_000_000*0.07) + (2000/1_000_000*0.14))
+            (5000/1_000_000*3.0) + (2000/1_000_000*15.0))
         self.assertEqual(result.status, "success")
 
 
@@ -148,10 +146,10 @@ class TestCostSummary(unittest.TestCase):
         
         tracker = CostTracker()
         
-        # Record 3 paths
-        tracker.record_path_cost("p1", "s1", "qwen/qwen3-8b", 1000, 500, status="success")
-        tracker.record_path_cost("p2", "s2", "qwen/qwen3-8b", 1500, 800, status="success")
-        tracker.record_path_cost("p3", "s3", "qwen/qwen3-8b", 500, 200, status="failed")
+        # Record 3 paths with Claude Sonnet
+        tracker.record_path_cost("p1", "s1", "claude-sonnet-4-20250514", 1000, 500, status="success")
+        tracker.record_path_cost("p2", "s2", "claude-sonnet-4-20250514", 1500, 800, status="success")
+        tracker.record_path_cost("p3", "s3", "claude-sonnet-4-20250514", 500, 200, status="failed")
         
         summary = tracker.get_summary()
         
@@ -162,7 +160,6 @@ class TestCostSummary(unittest.TestCase):
         self.assertEqual(summary.total_output_tokens, 1500)
         self.assertEqual(summary.total_tokens, 4500)
         
-        # Check averages
         self.assertAlmostEqual(
             summary.avg_cost_per_path, 
             summary.total_cost_usd / 3
@@ -182,10 +179,9 @@ class TestRecommendations(unittest.TestCase):
         
         tracker = CostTracker()
         
-        # 1 success out of 5 = 20%
         for i in range(4):
-            tracker.record_path_cost(f"p{i}", "s", "qwen/qwen3-8b", 100, 50, status="failed")
-        tracker.record_path_cost("p4", "s", "qwen/qwen3-8b", 100, 50, status="success")
+            tracker.record_path_cost(f"p{i}", "s", "claude-sonnet-4-20250514", 100, 50, status="failed")
+        tracker.record_path_cost("p4", "s", "claude-sonnet-4-20250514", 100, 50, status="success")
         
         summary = tracker.get_summary()
         
@@ -197,16 +193,14 @@ class TestRecommendations(unittest.TestCase):
         
         tracker = CostTracker()
         
-        # High cost paths (using expensive model)
         for i in range(3):
             tracker.record_path_cost(
-                f"p{i}", "s", "anthropic/claude-opus-4-6", 
+                f"p{i}", "s", "claude-opus-4-6", 
                 100000, 50000, status="success"
             )
         
         summary = tracker.get_summary()
         
-        # Should trigger high cost warning (>$1)
         self.assertTrue(any("$" in r and "high" in r.lower() for r in summary.recommendations))
 
     def test_early_stopping_recommendation(self):
@@ -215,10 +209,9 @@ class TestRecommendations(unittest.TestCase):
         
         tracker = CostTracker()
         
-        # 1 success out of 3 - suggests early stopping could help
-        tracker.record_path_cost("p0", "s", "qwen/qwen3-8b", 100, 50, status="success")
-        tracker.record_path_cost("p1", "s", "qwen/qwen3-8b", 100, 50, status="failed")
-        tracker.record_path_cost("p2", "s", "qwen/qwen3-8b", 100, 50, status="failed")
+        tracker.record_path_cost("p0", "s", "claude-sonnet-4-20250514", 100, 50, status="success")
+        tracker.record_path_cost("p1", "s", "claude-sonnet-4-20250514", 100, 50, status="failed")
+        tracker.record_path_cost("p2", "s", "claude-sonnet-4-20250514", 100, 50, status="failed")
         
         summary = tracker.get_summary()
         
@@ -233,7 +226,7 @@ class TestCostReportFormatting(unittest.TestCase):
         from src.core.cost_tracker import CostTracker, format_cost_report
         
         tracker = CostTracker()
-        tracker.record_path_cost("p1", "breadth", "qwen/qwen3-8b", 1000, 500, status="success")
+        tracker.record_path_cost("p1", "breadth", "claude-sonnet-4-20250514", 1000, 500, status="success")
         
         summary = tracker.get_summary()
         report = format_cost_report(summary)
@@ -253,21 +246,19 @@ class TestSaveLoad(unittest.TestCase):
         
         with tempfile.TemporaryDirectory() as tmpdir:
             tracker = CostTracker(log_dir=tmpdir)
-            tracker.record_path_cost("p1", "s", "qwen/qwen3-8b", 1000, 500, status="success")
+            tracker.record_path_cost("p1", "s", "claude-sonnet-4-20250514", 1000, 500, status="success")
             
             filepath = tracker.save_to_file()
             
             self.assertTrue(Path(filepath).exists())
             
-            # Verify content
             import json
             with open(filepath) as f:
                 data = json.load(f)
             
             self.assertEqual(data["total_paths"], 1)
-            # 1000 input + 500 output = 1500 total
-            # Cost: 0.00007 + 0.00007 = 0.00014
-            self.assertAlmostEqual(data["total_cost_usd"], 0.00014, places=5)
+            # 1000 input * $3/1M + 500 output * $15/1M = 0.003 + 0.0075 = 0.0105
+            self.assertAlmostEqual(data["total_cost_usd"], 0.0105, places=4)
 
 
 if __name__ == "__main__":

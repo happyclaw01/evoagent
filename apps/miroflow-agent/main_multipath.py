@@ -6,8 +6,8 @@
 # EA-008: Path count configurable via NUM_PATHS env var or num_paths Hydra override.
 #
 # Usage:
-#   uv run python main_multipath.py llm=openrouter-local agent=single_agent
-#   uv run python main_multipath.py llm=openrouter-local agent=single_agent num_paths=2
+#   uv run python main_multipath.py agent=single_agent
+#   uv run python main_multipath.py agent=single_agent num_paths=2
 
 import asyncio
 import os
