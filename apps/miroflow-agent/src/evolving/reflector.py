@@ -51,6 +51,8 @@ Analyze the agent's strategy and produce a JSON object with ALL of the following
 - "tools_used": list of tools the agent actually used, e.g. ["web_search", "code_execution", "solver", "browsing"]
 - "strategy_name": short name for the overall strategy the agent adopted (e.g. "search_heavy", "code_compute", "multi_source_verify", "direct_reasoning")
 
+CRITICAL: Do NOT include the ground truth answer, specific correct values, names, or options in the "lesson" field. Focus ONLY on methodology improvements. For example, write "should verify with multiple recent sources" instead of "the correct answer was X". The lessons will be injected into future runs, so leaking answers would invalidate the evaluation.
+
 Return ONLY the JSON object, no other text."""
 
 # ---------------------------------------------------------------------------
@@ -78,6 +80,8 @@ Analyze the differences between paths and produce a JSON object with ALL fields:
 - "strategy_insights": dict mapping each strategy_name to a brief insight about its performance on this question
 - "recommended_strategies": list of strategy names recommended for this question type (based on this comparison)
 - "avoid_strategies": list of strategy names to avoid for this question type
+
+CRITICAL: Do NOT include the ground truth answer, specific correct values, names, or options in your lesson or insights. Focus ONLY on methodology and strategy lessons. For example, write "missed late-stage polling shifts" instead of "missed that Candidate X overtook Candidate Y". The experiences will be injected into future runs on similar questions, so leaking answers would invalidate the evaluation.
 
 Return ONLY the JSON object, no other text."""
 
