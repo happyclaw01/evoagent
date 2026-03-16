@@ -22,6 +22,9 @@ TENCENTCLOUD_SECRET_KEY = os.environ.get("TENCENTCLOUD_SECRET_KEY", "")
 JINA_API_KEY = os.environ.get("JINA_API_KEY", "")
 JINA_BASE_URL = os.environ.get("JINA_BASE_URL", "https://r.jina.ai")
 
+def _get_search_before_date() -> str:
+    return os.environ.get("SEARCH_BEFORE_DATE", "")
+
 # Initialize FastMCP server
 mcp = FastMCP("searching-sougou-mcp-server")
 
@@ -116,9 +119,10 @@ async def sougou_search(Query: str, Cnt: int = 10, before_date: str = "") -> str
                 new_page["site"] = page_json["site"]
                 # new_page["favicon"] = page_json["favicon"]
                 pages.append(new_page)
-            # Apply before_date filter if specified
-            if before_date:
-                pages = _filter_pages_by_date(pages, before_date)
+            # Apply before_date: explicit param > env var SEARCH_BEFORE_DATE
+            effective_before_date = before_date or _get_search_before_date()
+            if effective_before_date:
+                pages = _filter_pages_by_date(pages, effective_before_date)
             result["Pages"] = pages
             return json.dumps(result, ensure_ascii=False)
         except TencentCloudSDKException:

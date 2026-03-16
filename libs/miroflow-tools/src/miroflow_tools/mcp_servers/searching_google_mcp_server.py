@@ -21,6 +21,10 @@ SERPER_BASE_URL = os.environ.get("SERPER_BASE_URL", "https://google.serper.dev")
 JINA_API_KEY = os.environ.get("JINA_API_KEY", "")
 JINA_BASE_URL = os.environ.get("JINA_BASE_URL", "https://r.jina.ai")
 
+# Read SEARCH_BEFORE_DATE dynamically (set per-task by pipeline from FutureX end_time)
+def _get_search_before_date() -> str:
+    return os.environ.get("SEARCH_BEFORE_DATE", "")
+
 # Google search result filtering environment variables
 REMOVE_SNIPPETS = os.environ.get("REMOVE_SNIPPETS", "").lower() in ("true", "1", "yes")
 REMOVE_KNOWLEDGE_GRAPH = os.environ.get("REMOVE_KNOWLEDGE_GRAPH", "").lower() in (
@@ -123,9 +127,10 @@ async def google_search(
     Returns:
         The search results.
     """
-    # Convert before_date to tbs if provided
-    if before_date:
-        tbs_from_date = _before_date_to_tbs(before_date)
+    # Apply before_date: explicit param > env var SEARCH_BEFORE_DATE
+    effective_before_date = before_date or _get_search_before_date()
+    if effective_before_date:
+        tbs_from_date = _before_date_to_tbs(effective_before_date)
         if tbs_from_date:
             tbs = tbs_from_date
     if SERPER_API_KEY == "":

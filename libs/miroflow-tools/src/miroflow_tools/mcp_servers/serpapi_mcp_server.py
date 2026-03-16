@@ -23,6 +23,9 @@ from .utils import decode_http_urls_in_dict
 SERPAPI_API_KEY = os.getenv("SERPAPI_API_KEY", "")
 SERPAPI_BASE_URL = os.getenv("SERPAPI_BASE_URL", "https://serpapi.com")
 
+def _get_search_before_date() -> str:
+    return os.getenv("SEARCH_BEFORE_DATE", "")
+
 # Initialize FastMCP server
 mcp = FastMCP("serpapi-mcp-server")
 
@@ -151,9 +154,10 @@ def baidu_search(
         "output": "json",
     }
 
-    # Apply before_date filter
-    if before_date:
-        gpc = _before_date_to_gpc(before_date)
+    # Apply before_date: explicit param > env var SEARCH_BEFORE_DATE
+    effective_before_date = before_date or _get_search_before_date()
+    if effective_before_date:
+        gpc = _before_date_to_gpc(effective_before_date)
         if gpc:
             params["gpc"] = gpc
 

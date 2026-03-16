@@ -968,7 +968,9 @@ class GenericEvaluator(BenchmarkEvaluator):
                 f"You must ONLY use information that was available BEFORE {deadline}. "
                 f"Do NOT use any information published on or after {deadline}. "
                 f"Your goal is to PREDICT the outcome based on pre-deadline evidence, not to look up what already happened. "
-                f"If you encounter any source that reveals the actual outcome or resolution result, you MUST IGNORE it and base your prediction solely on information available before {deadline}."
+                f"If you encounter any source that reveals the actual outcome or resolution result, you MUST IGNORE it and base your prediction solely on information available before {deadline}.\n\n"
+                f"MANDATORY: When calling ANY search tool (google_search, baidu_search, sougou_search, etc.), "
+                f"you MUST set the before_date parameter to \"{deadline}\" to enforce the time cutoff at the API level."
             )
 
         return task_description, task_file_path

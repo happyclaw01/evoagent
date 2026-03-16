@@ -17,6 +17,9 @@ logger = logging.getLogger("miroflow")
 JINA_BASE_URL = os.getenv("JINA_BASE_URL", "https://r.jina.ai")
 JINA_API_KEY = os.getenv("JINA_API_KEY", "")
 
+def _get_search_before_date() -> str:
+    return os.getenv("SEARCH_BEFORE_DATE", "")
+
 mcp = FastMCP("search_and_scrape_webpage")
 
 
@@ -121,7 +124,9 @@ async def google_search(
         full_query += f" filetype:{filetype}"
 
     # Resolve timelimit from date_range or before_date
-    timelimit = _parse_timelimit(date_range=date_range, before_date=before_date)
+    # Apply before_date: explicit param > env var SEARCH_BEFORE_DATE
+    effective_before_date = before_date or _get_search_before_date()
+    timelimit = _parse_timelimit(date_range=date_range, before_date=effective_before_date)
 
     num = min(num, 20)
     results = await _ddg_search(full_query, num, timelimit=timelimit)
