@@ -963,15 +963,18 @@ class GenericEvaluator(BenchmarkEvaluator):
         end_time = task.metadata.get("end_time", "")
         if end_time:
             deadline = str(end_time).split(" ")[0]
+            # Set env var — ToolManager auto-injects before_date into all search tool calls
+            os.environ["SEARCH_BEFORE_DATE"] = deadline
             task_description += (
                 f"\n\nIMPORTANT TIME CONSTRAINT: This event is expected to resolve around {deadline}. "
                 f"You must ONLY use information that was available BEFORE {deadline}. "
                 f"Do NOT use any information published on or after {deadline}. "
                 f"Your goal is to PREDICT the outcome based on pre-deadline evidence, not to look up what already happened. "
-                f"If you encounter any source that reveals the actual outcome or resolution result, you MUST IGNORE it and base your prediction solely on information available before {deadline}.\n\n"
-                f"MANDATORY: When calling ANY search tool (google_search, baidu_search, sougou_search, etc.), "
-                f"you MUST set the before_date parameter to \"{deadline}\" to enforce the time cutoff at the API level."
+                f"If you encounter any source that reveals the actual outcome or resolution result, you MUST IGNORE it and base your prediction solely on information available before {deadline}."
             )
+        else:
+            # Clear date filter for tasks without end_time
+            os.environ.pop("SEARCH_BEFORE_DATE", None)
 
         return task_description, task_file_path
 

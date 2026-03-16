@@ -3,6 +3,7 @@
 
 import asyncio
 import functools
+import os
 from typing import Any, Awaitable, Callable, Protocol, TypeVar
 
 from mcp import ClientSession, StdioServerParameters  # (already imported in config.py)
@@ -194,6 +195,13 @@ class ToolManager(ToolManagerProtocol):
 
         return all_servers_for_prompt
 
+    # Search tools that support before_date parameter
+    _SEARCH_TOOLS = {
+        "google_search", "baidu_search", "sougou_search",
+        "serpapi_google_search", "serpapi_bing_search",
+        "serpapi_baidu_search", "serpapi_yahoo_search", "serpapi_yandex_search",
+    }
+
     @with_timeout(1200)
     async def execute_tool_call(self, server_name, tool_name, arguments) -> Any:
         """
@@ -203,6 +211,17 @@ class ToolManager(ToolManagerProtocol):
         :param arguments: Tool arguments dictionary
         :return: Dictionary containing result or error
         """
+
+        # Auto-inject before_date from SEARCH_BEFORE_DATE env var into search tools
+        if tool_name in self._SEARCH_TOOLS and "before_date" not in arguments:
+            search_before_date = os.environ.get("SEARCH_BEFORE_DATE", "")
+            if search_before_date:
+                arguments = {**arguments, "before_date": search_before_date}
+                self._log(
+                    "info",
+                    "ToolManager | Auto-inject before_date",
+                    f"Injected before_date={search_before_date} into {tool_name}",
+                )
 
         # Original remote server call logic
         server_params = self.get_server_params(server_name)
