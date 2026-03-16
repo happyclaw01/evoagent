@@ -194,7 +194,7 @@ async def reflect_on_task(
 
     create_kwargs: dict[str, Any] = dict(
         messages=[{"role": "user", "content": prompt}],
-        max_completion_tokens=1024,
+        max_completion_tokens=4096,
         temperature=0.3,
     )
     if model:
@@ -202,7 +202,10 @@ async def reflect_on_task(
 
     try:
         response = await llm_client.chat.completions.create(**create_kwargs)
-        content = response.choices[0].message.content.strip()
+        content = (response.choices[0].message.content or "").strip()
+        if not content:
+            logger.warning(f"Reflection returned empty content for task {task_log.get('task_id', '?')}")
+            return None
 
         json_match = re.search(r"\{[\s\S]*\}", content)
         if json_match:
@@ -447,7 +450,7 @@ async def _reflect_comparison(
 
     create_kwargs: dict[str, Any] = dict(
         messages=[{"role": "user", "content": prompt}],
-        max_completion_tokens=1024,
+        max_completion_tokens=4096,
         temperature=0.3,
     )
     if model:
@@ -455,7 +458,10 @@ async def _reflect_comparison(
 
     try:
         response = await llm_client.chat.completions.create(**create_kwargs)
-        content = response.choices[0].message.content.strip()
+        content = (response.choices[0].message.content or "").strip()
+        if not content:
+            logger.warning("Multi-path comparison reflection returned empty content")
+            return None
 
         json_match = re.search(r"\{[\s\S]*\}", content)
         if json_match:

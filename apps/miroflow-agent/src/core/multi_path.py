@@ -136,9 +136,10 @@ async def _run_with_early_stopping(
     async_tasks = [asyncio.create_task(t) for t in tasks]
     
     while pending:
-        # Wait for any task to complete
+        # Wait for any task to complete — only pass pending tasks
+        pending_tasks = [async_tasks[i] for i in pending]
         done, still_pending = await asyncio.wait(
-            async_tasks,
+            pending_tasks,
             return_when=asyncio.FIRST_COMPLETED
         )
         
