@@ -122,6 +122,7 @@ async def _run_with_early_stopping(
     early_stop_threshold: float,
     master_log,
     log_dir: str,
+    task_id: str = "",
 ) -> List:
     """
     Run tasks with early stopping: cancel remaining tasks when consensus is reached.
@@ -847,7 +848,7 @@ async def execute_multi_path_pipeline(
         # Use early stopping
         raw_results = await _run_with_early_stopping(
             tasks, strategies, early_stop_k, early_stop_threshold, 
-            master_log, log_dir
+            master_log, log_dir, task_id=task_id
         )
         
         # Post-process results (already in correct format from _run_with_early_stopping)
