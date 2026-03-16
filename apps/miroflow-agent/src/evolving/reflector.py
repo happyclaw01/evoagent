@@ -491,6 +491,8 @@ async def auto_reflect_multi_path(
     and ground_truth is present. Exceptions are caught internally.
     """
     try:
+        import os as _os
+
         evolving_cfg = cfg.get("evolving", {})
         if not evolving_cfg.get("enabled", False):
             return
@@ -501,9 +503,19 @@ async def auto_reflect_multi_path(
 
         from openai import AsyncOpenAI
 
-        api_key = cfg.llm.get("api_key", "")
-        base_url = cfg.llm.get("base_url", "")
-        model = evolving_cfg.get("reflection_model", "") or cfg.llm.get("model_name", "")
+        # Read from env to avoid Hydra interpolation issues
+        try:
+            api_key = cfg.llm.get("api_key", "")
+        except Exception:
+            api_key = _os.environ.get("ANTHROPIC_API_KEY", "")
+        try:
+            base_url = cfg.llm.get("base_url", "")
+        except Exception:
+            base_url = _os.environ.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com")
+        try:
+            model = evolving_cfg.get("reflection_model", "") or cfg.llm.get("model_name", "")
+        except Exception:
+            model = evolving_cfg.get("reflection_model", "") or "claude-sonnet-4-20250514"
 
         llm_client = AsyncOpenAI(api_key=api_key, base_url=base_url)
 

@@ -1,6 +1,10 @@
 # Copyright (c) 2025 MiroMind
 # This source code is licensed under the MIT License.
 
+# Load .env BEFORE any other imports so Hydra/OmegaConf ${VAR} interpolations work
+from dotenv import load_dotenv as _load_dotenv
+_load_dotenv()
+
 import asyncio
 import gc
 import json
