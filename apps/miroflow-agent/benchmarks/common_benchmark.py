@@ -31,6 +31,7 @@ print("[debug] importing src.core.pipeline (create_pipeline_components, execute_
 from src.core.pipeline import (
     create_pipeline_components,
     execute_task_pipeline,
+    execute_multi_path_task_pipeline,
 )
 print("[debug] imported src.core.pipeline", flush=True)
 
@@ -323,21 +324,45 @@ class BenchmarkEvaluator(ABC):
 
                     while format_retry_count <= max_format_retries:
                         try:
-                            (
-                                response,
-                                final_boxed_answer,
-                                log_file_path,
-                            ) = await execute_task_pipeline(
-                                cfg=self.cfg,
-                                task_id=f"{task.task_id}_attempt-{attempt}_format-retry-{format_retry_count}",
-                                task_file_name=task_file_path,
-                                task_description=task_description,
-                                main_agent_tool_manager=self.main_agent_tool_manager,
-                                sub_agent_tool_managers=self.sub_agent_tool_managers,
-                                output_formatter=self.output_formatter,
-                                ground_truth=task.ground_truth,
-                                log_dir=str(self.get_log_dir()),
-                            )
+                            # Check if multi-path is enabled
+                            multi_path_cfg = self.cfg.benchmark.get("multi_path", {})
+                            use_multi_path = multi_path_cfg.get("enabled", False)
+
+                            if use_multi_path:
+                                (
+                                    response,
+                                    final_boxed_answer,
+                                    log_file_path,
+                                ) = await execute_multi_path_task_pipeline(
+                                    cfg=self.cfg,
+                                    task_id=f"{task.task_id}_attempt-{attempt}_format-retry-{format_retry_count}",
+                                    task_file_name=task_file_path,
+                                    task_description=task_description,
+                                    main_agent_tool_manager=self.main_agent_tool_manager,
+                                    sub_agent_tool_managers=self.sub_agent_tool_managers,
+                                    output_formatter=self.output_formatter,
+                                    ground_truth=task.ground_truth,
+                                    log_dir=str(self.get_log_dir()),
+                                    num_paths=multi_path_cfg.get("num_paths", 3),
+                                    early_stop_k=multi_path_cfg.get("early_stop_k", 2),
+                                    early_stop_threshold=multi_path_cfg.get("early_stop_threshold", 1.0),
+                                )
+                            else:
+                                (
+                                    response,
+                                    final_boxed_answer,
+                                    log_file_path,
+                                ) = await execute_task_pipeline(
+                                    cfg=self.cfg,
+                                    task_id=f"{task.task_id}_attempt-{attempt}_format-retry-{format_retry_count}",
+                                    task_file_name=task_file_path,
+                                    task_description=task_description,
+                                    main_agent_tool_manager=self.main_agent_tool_manager,
+                                    sub_agent_tool_managers=self.sub_agent_tool_managers,
+                                    output_formatter=self.output_formatter,
+                                    ground_truth=task.ground_truth,
+                                    log_dir=str(self.get_log_dir()),
+                                )
 
                             attempt_result["model_boxed_answer"] = (
                                 final_boxed_answer if final_boxed_answer else ""

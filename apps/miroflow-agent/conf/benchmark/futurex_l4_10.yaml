@@ -1,0 +1,23 @@
+# conf/benchmark/futurex_l4_10.yaml - 10 L4 questions for multi-path + reflector test
+defaults:
+  - default
+  - _self_
+
+name: "futurex"
+
+data:
+  data_dir: "/home/chenzhewen/futurex"
+  metadata_file: "l4_10_test.jsonl"
+
+execution:
+  max_tasks: null
+  max_concurrent: 1    # Sequential: so reflector experiences propagate between tasks
+  pass_at_k: 1
+  format_error_retry_limit: 3
+
+# Multi-path configuration
+multi_path:
+  enabled: true
+  num_paths: 3
+  early_stop_k: 2
+  early_stop_threshold: 1.0
