@@ -751,7 +751,7 @@ class BenchmarkEvaluator(ABC):
 
             # Extract F1 score from judge_type if available (futurex)
             for attempt in result.attempts:
-                jt = attempt.get("judge_type", "")
+                jt = attempt.get("judge_type", "") or ""
                 if "futurex_f1" in jt:
                     import re as _re
                     m = _re.search(r"futurex_f1\(([\d.]+)\)", jt)
