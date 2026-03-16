@@ -94,11 +94,29 @@ def _normalize_results(data: Dict[str, Any]) -> Dict[str, Any]:
     return normalized
 
 
+def _before_date_to_gpc(before_date: str) -> Optional[str]:
+    """Convert 'YYYY-MM-DD' to Baidu's gpc (time filter) parameter.
+
+    Baidu gpc format: 'stf=TIMESTAMP_START,TIMESTAMP_END|stftype=1'
+    We use epoch 0 as start and the before_date as end.
+    """
+    try:
+        from datetime import datetime, timezone
+
+        clean = before_date.strip().split(" ")[0]
+        dt = datetime.strptime(clean, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        end_ts = int(dt.timestamp())
+        return f"stf=0,{end_ts}|stftype=1"
+    except (ValueError, AttributeError):
+        return None
+
+
 @mcp.tool()
 def baidu_search(
     q: str,
     rn: int = 10,
     pn: int = 0,
+    before_date: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Search Baidu via SerpAPI. Best for Chinese-language queries and China-specific information.
     Use this when the query is in Chinese, or when searching for information
@@ -108,6 +126,8 @@ def baidu_search(
         q: Search query string (supports Chinese characters).
         rn: Number of results per page (default 10, max 50).
         pn: Result offset for pagination (default 0; use 10 for page 2, 20 for page 3, etc.).
+        before_date: Optional cut-off date (YYYY-MM-DD). Only return results published before
+                     this date. Useful for predicting future events.
 
     Returns:
         Dictionary containing search results with organic listings.
@@ -130,6 +150,12 @@ def baidu_search(
         "api_key": SERPAPI_API_KEY,
         "output": "json",
     }
+
+    # Apply before_date filter
+    if before_date:
+        gpc = _before_date_to_gpc(before_date)
+        if gpc:
+            params["gpc"] = gpc
 
     try:
         response = _make_serpapi_request(params)

@@ -68,6 +68,7 @@ async def baidu_search(
     q: str,
     rn: int = 10,
     pn: int = 0,
+    before_date: str = None,
 ) -> str:
     """Search Baidu via SerpAPI. Best for Chinese-language queries and China-specific information.
     Use this tool when:
@@ -82,6 +83,9 @@ async def baidu_search(
         q: Search query string (supports Chinese characters).
         rn: Number of results per page (default 10, max 50).
         pn: Result offset for pagination (default 0; use 10 for page 2, 20 for page 3).
+        before_date: Optional cut-off date (YYYY-MM-DD). Only return results published before
+                     this date. Useful for predicting future events — prevents seeing results
+                     after the event resolved.
 
     Returns:
         JSON string with search results including organic listings.
@@ -89,10 +93,11 @@ async def baidu_search(
     if not SERPAPI_API_KEY:
         return "[ERROR]: SERPAPI_API_KEY is not set, baidu_search is unavailable."
 
-    return await _call_serpapi_tool(
-        "baidu_search",
-        {"q": q, "rn": rn, "pn": pn},
-    )
+    arguments = {"q": q, "rn": rn, "pn": pn}
+    if before_date:
+        arguments["before_date"] = before_date
+
+    return await _call_serpapi_tool("baidu_search", arguments)
 
 
 if __name__ == "__main__":
