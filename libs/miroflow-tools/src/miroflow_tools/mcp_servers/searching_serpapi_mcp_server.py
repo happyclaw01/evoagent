@@ -2,21 +2,17 @@
 # This source code is licensed under the MIT License.
 
 """
-High-level SerpAPI search tools exposed as FastMCP server.
-Supports Google, Bing, Baidu, Yahoo, and Yandex via SerpAPI.
+High-level SerpAPI Baidu search tool exposed as FastMCP server.
+Google/Bing search is handled by Serper.dev (searching_google_mcp_server.py).
 """
 
 import asyncio
-import json
 import os
 import sys
 
-import requests
 from fastmcp import FastMCP
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
-
-from .utils import strip_markdown_links
 
 SERPAPI_API_KEY = os.environ.get("SERPAPI_API_KEY", "")
 SERPAPI_BASE_URL = os.environ.get("SERPAPI_BASE_URL", "https://serpapi.com")
@@ -44,9 +40,13 @@ async def _call_serpapi_tool(tool_name: str, arguments: dict) -> str:
     while retry_count < max_retries:
         try:
             async with stdio_client(server_params) as (read, write):
-                async with ClientSession(read, write, sampling_callback=None) as session:
+                async with ClientSession(
+                    read, write, sampling_callback=None
+                ) as session:
                     await session.initialize()
-                    tool_result = await session.call_tool(tool_name, arguments=arguments)
+                    tool_result = await session.call_tool(
+                        tool_name, arguments=arguments
+                    )
                     result_content = (
                         tool_result.content[-1].text if tool_result.content else ""
                     )
@@ -64,132 +64,34 @@ async def _call_serpapi_tool(tool_name: str, arguments: dict) -> str:
 
 
 @mcp.tool()
-async def serpapi_google_search(
-    q: str,
-    gl: str = "us",
-    hl: str = "en",
-    location: str = None,
-    num: int = 10,
-    tbs: str = None,
-) -> str:
-    """Search Google via SerpAPI. Returns organic results, knowledge graph, and answer box.
-
-    Args:
-        q: Search query string.
-        gl: Country code (e.g. 'us', 'cn', 'uk').
-        hl: Language code (e.g. 'en', 'zh-cn').
-        location: Optional city-level location (e.g. 'Austin, Texas, United States').
-        num: Number of results (default 10).
-        tbs: Time filter ('qdr:h' past hour, 'qdr:d' past day, 'qdr:w' past week, 'qdr:m' past month, 'qdr:y' past year).
-
-    Returns:
-        JSON string with search results.
-    """
-    if not SERPAPI_API_KEY:
-        return "[ERROR]: SERPAPI_API_KEY is not set, serpapi_google_search is unavailable."
-
-    arguments = {"q": q, "gl": gl, "hl": hl, "num": num}
-    if location:
-        arguments["location"] = location
-    if tbs:
-        arguments["tbs"] = tbs
-
-    return await _call_serpapi_tool("serpapi_google_search", arguments)
-
-
-@mcp.tool()
-async def serpapi_bing_search(
-    q: str,
-    cc: str = "US",
-    setlang: str = "en",
-    count: int = 10,
-) -> str:
-    """Search Bing via SerpAPI. Useful for cross-engine verification or when Google results are insufficient.
-
-    Args:
-        q: Search query string.
-        cc: Country code (e.g. 'US', 'CN', 'GB').
-        setlang: Language (e.g. 'en', 'zh-cn').
-        count: Number of results (default 10).
-
-    Returns:
-        JSON string with search results.
-    """
-    if not SERPAPI_API_KEY:
-        return "[ERROR]: SERPAPI_API_KEY is not set, serpapi_bing_search is unavailable."
-
-    return await _call_serpapi_tool(
-        "serpapi_bing_search",
-        {"q": q, "cc": cc, "setlang": setlang, "count": count},
-    )
-
-
-@mcp.tool()
-async def serpapi_baidu_search(
+async def baidu_search(
     q: str,
     rn: int = 10,
+    pn: int = 0,
 ) -> str:
     """Search Baidu via SerpAPI. Best for Chinese-language queries and China-specific information.
+    Use this tool when:
+    - The query is in Chinese
+    - Searching for China-specific information (companies, events, regulations, celebrities)
+    - Google results lack Chinese-language sources
+    - Cross-verifying information with a Chinese search engine
+
+    For English/international queries, prefer google_search (Serper.dev) instead.
 
     Args:
         q: Search query string (supports Chinese characters).
-        rn: Number of results (default 10).
+        rn: Number of results per page (default 10, max 50).
+        pn: Result offset for pagination (default 0; use 10 for page 2, 20 for page 3).
 
     Returns:
-        JSON string with search results.
+        JSON string with search results including organic listings.
     """
     if not SERPAPI_API_KEY:
-        return "[ERROR]: SERPAPI_API_KEY is not set, serpapi_baidu_search is unavailable."
+        return "[ERROR]: SERPAPI_API_KEY is not set, baidu_search is unavailable."
 
     return await _call_serpapi_tool(
-        "serpapi_baidu_search",
-        {"q": q, "rn": rn},
-    )
-
-
-@mcp.tool()
-async def serpapi_yahoo_search(
-    p: str,
-    n: int = 10,
-) -> str:
-    """Search Yahoo via SerpAPI.
-
-    Args:
-        p: Search query string.
-        n: Number of results (default 10).
-
-    Returns:
-        JSON string with search results.
-    """
-    if not SERPAPI_API_KEY:
-        return "[ERROR]: SERPAPI_API_KEY is not set, serpapi_yahoo_search is unavailable."
-
-    return await _call_serpapi_tool(
-        "serpapi_yahoo_search",
-        {"p": p, "n": n},
-    )
-
-
-@mcp.tool()
-async def serpapi_yandex_search(
-    text: str,
-    lang: str = "en",
-) -> str:
-    """Search Yandex via SerpAPI. Good for Russian-language and Eastern European content.
-
-    Args:
-        text: Search query string.
-        lang: Language ('en', 'ru', etc.).
-
-    Returns:
-        JSON string with search results.
-    """
-    if not SERPAPI_API_KEY:
-        return "[ERROR]: SERPAPI_API_KEY is not set, serpapi_yandex_search is unavailable."
-
-    return await _call_serpapi_tool(
-        "serpapi_yandex_search",
-        {"text": text, "lang": lang},
+        "baidu_search",
+        {"q": q, "rn": rn, "pn": pn},
     )
 
 
