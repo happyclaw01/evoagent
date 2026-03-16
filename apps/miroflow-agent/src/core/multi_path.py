@@ -286,6 +286,70 @@ STRATEGY_VARIANTS = [
 ]
 
 
+def _select_strategies(
+    cfg: DictConfig,
+    task_description: str,
+    num_paths: int,
+) -> List[Dict]:
+    """Select strategies based on StrategyEvolver preferences (if available).
+
+    If evolving is enabled and strategy_preferences.json has recommendations
+    for the detected question type, prioritize recommended strategies.
+    Falls back to default STRATEGY_VARIANTS[:num_paths].
+    """
+    default = STRATEGY_VARIANTS[:num_paths]
+
+    evolving_cfg = cfg.get("evolving", {})
+    if not evolving_cfg.get("enabled", False):
+        return default
+
+    try:
+        from ..evolving.experience_injector import ExperienceInjector
+        from ..evolving.experience_store import ExperienceStore
+        from ..evolving.strategy_evolver import StrategyEvolver
+
+        prefs_file = evolving_cfg.get("strategy_preferences_file", "")
+        if not prefs_file:
+            return default
+
+        store = ExperienceStore(evolving_cfg.get("experience_file", ""))
+        evolver = StrategyEvolver(store, prefs_file, evolving_cfg.get("prompt_overrides_file", ""))
+
+        prefs = evolver.load_strategy_preferences()
+        if not prefs or not prefs.get("stats"):
+            return default
+
+        # Classify the task to find question_type
+        labels = ExperienceInjector._classify_via_rules(task_description)
+        question_type = labels.get("question_type", "")
+        if not question_type:
+            return default
+
+        recs = prefs.get("recommendations", {}).get(question_type, [])
+        if isinstance(recs, str) or not recs:
+            return default
+
+        # Build strategy list: recommended first, then fill with others
+        strategy_map = {s["name"]: s for s in STRATEGY_VARIANTS}
+        selected = []
+        for name in recs:
+            if name in strategy_map and len(selected) < num_paths:
+                selected.append(strategy_map[name])
+        for s in STRATEGY_VARIANTS:
+            if s not in selected and len(selected) < num_paths:
+                selected.append(s)
+
+        logger.info(
+            f"Dynamic strategy selection for '{question_type}': "
+            f"{[s['name'] for s in selected]} (recommended: {recs})"
+        )
+        return selected
+
+    except Exception as e:
+        logger.warning(f"Strategy selection failed, using defaults: {e}")
+        return default
+
+
 async def _run_single_path(
     *,
     cfg: DictConfig,
@@ -650,7 +714,7 @@ async def execute_multi_path_pipeline(
         Tuple of (final_summary, final_boxed_answer, log_file_path)
     """
     if strategies is None:
-        strategies = STRATEGY_VARIANTS[:num_paths]
+        strategies = _select_strategies(cfg, task_description, num_paths)
 
     # EA-007: Create master task log for aggregation
     master_log = TaskLog(
@@ -848,6 +912,35 @@ async def execute_multi_path_pipeline(
         "MultiPath | Final",
         f"Selected answer: {best_answer[:200]}",
     )
+
+    # Self-Evolving: Multi-path reflection
+    # Reflect on each path individually + cross-path comparison
+    try:
+        evolving_cfg = cfg.get("evolving", {})
+        if evolving_cfg.get("enabled", False) and ground_truth:
+            from ..evolving.experience_store import ExperienceStore
+            from ..evolving.reflector import auto_reflect_multi_path
+
+            store = ExperienceStore(evolving_cfg.get("experience_file", ""))
+            await auto_reflect_multi_path(
+                path_results=processed_results,
+                task_description=task_description,
+                ground_truth=str(ground_truth),
+                cfg=cfg,
+                experience_store=store,
+            )
+            master_log.log_step(
+                "info",
+                "MultiPath | Reflection",
+                f"Multi-path reflection completed for {len(processed_results)} paths",
+            )
+    except Exception as e:
+        logger.warning(f"Multi-path reflection failed: {e}")
+        master_log.log_step(
+            "warning",
+            "MultiPath | Reflection Error",
+            str(e),
+        )
 
     master_log.final_boxed_answer = best_answer
     master_log.status = "success"
