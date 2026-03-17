@@ -32,6 +32,9 @@ from ..logging.task_logger import TaskLog, get_utc_plus_8_time
 # EA-304: Cost Tracker
 from .cost_tracker import CostTracker, format_cost_report
 
+# EA-307: OpenViking Context
+from .openviking_context import OpenVikingContext, Discovery
+
 # EA-011: Streaming
 from .streaming import (
     get_stream_manager, 
@@ -371,10 +374,13 @@ async def _run_single_path(
     sub_agent_tool_definitions: Optional[Dict[str, List[Dict[str, Any]]]] = None,
     # EA-010: Custom max_turns per strategy (optional override)
     max_turns: Optional[int] = None,
+    # EA-307: OpenViking context for cross-path sharing
+    viking_context: Optional[OpenVikingContext] = None,
 ) -> Tuple[str, str, str, str, Dict]:
     """
     EA-001: Run a single agent path with a specific strategy.
     EA-006: Each path creates its own TaskLog for isolated logging.
+    EA-307: Optionally loads context from OpenViking and shares discoveries.
     
     Returns:
         Tuple of (final_summary, final_boxed_answer, log_file_path, strategy_name, metadata)
@@ -440,11 +446,40 @@ async def _run_single_path(
 
         # EA-002: Inject strategy into the orchestrator's prompt generation
         # Strategy is applied via prompt suffix (DD-001: prompt injection, not code logic)
+        # EA-307: Also inject OpenViking context (discoveries from other paths)
         original_generate = llm_client.generate_agent_system_prompt
+
+        # EA-307: Load task context and cross-path discoveries
+        viking_suffix = ""
+        if viking_context:
+            try:
+                # Load strategy-specific context
+                ctx_blocks = await viking_context.load_task_context(
+                    task_description, strategy_name
+                )
+                if ctx_blocks:
+                    viking_suffix += "\n\n[Context from Knowledge Base]\n"
+                    for block in ctx_blocks:
+                        viking_suffix += f"- {block.content}\n"
+
+                # Query discoveries shared by other paths
+                discoveries = await viking_context.query_shared_discoveries(
+                    task_description, exclude_path=path_task_id
+                )
+                if discoveries:
+                    viking_suffix += "\n[Discoveries from Other Research Paths]\n"
+                    for d in discoveries:
+                        viking_suffix += f"- [{d.strategy}] {d.title}: {d.snippet}\n"
+                    viking_suffix += (
+                        "Use these discoveries as additional leads, "
+                        "but verify them independently.\n"
+                    )
+            except Exception as e:
+                logger.warning(f"OpenViking context loading failed for path {path_index}: {e}")
 
         def strategy_augmented_prompt(date, mcp_servers):
             base_prompt = original_generate(date=date, mcp_servers=mcp_servers)
-            return base_prompt + strategy["prompt_suffix"]
+            return base_prompt + strategy["prompt_suffix"] + viking_suffix
 
         llm_client.generate_agent_system_prompt = strategy_augmented_prompt
 
@@ -510,6 +545,31 @@ async def _run_single_path(
             "tool_calls": tool_calls,
             "duration": round(elapsed, 2),
         }
+
+        # EA-307: Save result and share discoveries via OpenViking
+        if viking_context:
+            try:
+                await viking_context.save_path_result(
+                    path_id=path_task_id,
+                    strategy=strategy_name,
+                    result={"answer": final_boxed_answer, "turns": metadata.get("turns", 0)},
+                    success=True,
+                )
+                # Share key findings as discoveries for other paths
+                if final_boxed_answer:
+                    await viking_context.share_discovery(
+                        path_id=path_task_id,
+                        strategy=strategy_name,
+                        discovery=Discovery(
+                            path_id=path_task_id,
+                            strategy=strategy_name,
+                            uri=f"path://{path_task_id}/answer",
+                            title=f"Path {path_index} ({strategy_name}) conclusion",
+                            snippet=final_boxed_answer[:300],
+                        ),
+                    )
+            except Exception as e:
+                logger.warning(f"OpenViking post-path save failed: {e}")
 
         logger.info(
             f"Path {path_index} ({strategy_name}) completed: answer='{final_boxed_answer[:100]}...'"
@@ -720,6 +780,24 @@ async def execute_multi_path_pipeline(
     if strategies is None:
         strategies = _select_strategies(cfg, task_description, num_paths)
 
+    # EA-307: Initialize OpenViking context for cross-path sharing
+    viking_context = None
+    ov_cfg = OmegaConf.to_container(cfg, resolve=True) if cfg else {}
+    ov_enabled = ov_cfg.get("openviking", {}).get("enabled", False) if isinstance(ov_cfg, dict) else False
+    # Also enable in fallback mode (in-memory) when evolving is on
+    evolving_enabled = ov_cfg.get("evolving", {}).get("enabled", False) if isinstance(ov_cfg, dict) else False
+    if ov_enabled or evolving_enabled:
+        try:
+            viking_context = OpenVikingContext(
+                enabled=ov_enabled,
+                fallback_mode=True,  # Always allow in-memory fallback
+            )
+            await viking_context.connect()
+            logger.info(f"OpenViking context initialized (server={'connected' if viking_context._connected else 'fallback'})")
+        except Exception as e:
+            logger.warning(f"OpenViking init failed, continuing without: {e}")
+            viking_context = None
+
     # EA-007: Create master task log for aggregation
     master_log = TaskLog(
         log_dir=log_dir,
@@ -844,6 +922,7 @@ async def execute_multi_path_pipeline(
                     tool_definitions=tool_definitions,
                     sub_agent_tool_definitions=sub_agent_tool_definitions,
                     max_turns=max_trns,
+                    viking_context=viking_context,
                 )
                 # EA-012: Check for retryable failure
                 if len(result) > 4 and isinstance(result[4], dict):
@@ -994,6 +1073,22 @@ async def execute_multi_path_pipeline(
             "MultiPath | Reflection Error",
             str(e),
         )
+
+    # EA-307: Trigger memory iteration and cleanup
+    if viking_context:
+        try:
+            iteration_result = await viking_context.trigger_memory_iteration()
+            stats = viking_context.get_statistics()
+            master_log.log_step(
+                "info",
+                "MultiPath | OpenViking Summary",
+                f"Memories: {stats['total_memories']}, "
+                f"Discoveries: {stats['total_discoveries']}, "
+                f"Recommended strategy: {iteration_result.get('recommended_strategy', 'N/A')}",
+            )
+            await viking_context.close()
+        except Exception as e:
+            logger.warning(f"OpenViking cleanup failed: {e}")
 
     master_log.final_boxed_answer = best_answer
     master_log.status = "success"
