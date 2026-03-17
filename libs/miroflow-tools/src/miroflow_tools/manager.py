@@ -212,16 +212,27 @@ class ToolManager(ToolManagerProtocol):
         :return: Dictionary containing result or error
         """
 
-        # Auto-inject before_date from SEARCH_BEFORE_DATE env var into search tools
-        if tool_name in self._SEARCH_TOOLS and "before_date" not in arguments:
+        # Auto-inject/override before_date from SEARCH_BEFORE_DATE env var into search tools.
+        # IMPORTANT: env var ALWAYS wins over agent-supplied before_date to prevent
+        # the LLM from copying the deadline date from the prompt and bypassing the
+        # -1 day safety margin set by the benchmark runner.
+        if tool_name in self._SEARCH_TOOLS:
             search_before_date = os.environ.get("SEARCH_BEFORE_DATE", "")
             if search_before_date:
+                agent_date = arguments.get("before_date", "")
+                if agent_date and agent_date != search_before_date:
+                    self._log(
+                        "info",
+                        "ToolManager | Override before_date",
+                        f"Overriding agent before_date={agent_date} with env SEARCH_BEFORE_DATE={search_before_date}",
+                    )
                 arguments = {**arguments, "before_date": search_before_date}
-                self._log(
-                    "info",
-                    "ToolManager | Auto-inject before_date",
-                    f"Injected before_date={search_before_date} into {tool_name}",
-                )
+                if not agent_date:
+                    self._log(
+                        "info",
+                        "ToolManager | Auto-inject before_date",
+                        f"Injected before_date={search_before_date} into {tool_name}",
+                    )
 
         # Original remote server call logic
         server_params = self.get_server_params(server_name)

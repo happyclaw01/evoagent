@@ -16,6 +16,7 @@
 import asyncio
 import copy
 import logging
+import os
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -752,10 +753,59 @@ async def execute_multi_path_pipeline(
 
     # EA-005: Create independent ToolManagers for each path to avoid state conflicts
     # DD-002: Each path uses independent ToolManager (MCP connections are stateful)
+    #
+    # FIX: Pre-fetch tool definitions ONCE, then share across all paths.
+    # Tool definitions are static schema data (name, description, inputSchema) —
+    # they contain no runtime state and are identical across paths.
+    # This avoids N×M concurrent MCP subprocess launches (N paths × M servers)
+    # which frequently caused 30s timeouts, leaving paths with empty tool lists.
+    # Actual tool EXECUTION still happens per-path via independent ToolManagers.
+    if not tool_definitions:
+        _prefetch_tm = ToolManager(
+            *create_mcp_server_parameters(cfg, cfg.agent.main_agent)
+        )
+        master_log.log_step(
+            "info",
+            "MultiPath | Tool Prefetch",
+            "Pre-fetching tool definitions once for all paths...",
+        )
+        try:
+            tool_definitions = await asyncio.wait_for(
+                _prefetch_tm.get_all_tool_definitions(),
+                timeout=int(os.getenv("MIROFLOW_TOOL_DEFS_TIMEOUT_S", "30")),
+            )
+            master_log.log_step(
+                "info",
+                "MultiPath | Tool Prefetch",
+                f"Successfully pre-fetched tool definitions: {sum(len(s.get('tools',[])) for s in tool_definitions)} tools from {len(tool_definitions)} servers",
+            )
+        except (asyncio.TimeoutError, Exception) as e:
+            master_log.log_step(
+                "warning",
+                "MultiPath | Tool Prefetch",
+                f"Failed to pre-fetch tool definitions ({e}); paths will retry individually.",
+            )
+            tool_definitions = None  # Let each path try on its own as fallback
+
+    if not sub_agent_tool_definitions and cfg.agent.sub_agents:
+        sub_agent_tool_definitions = {}
+        for sub_agent in cfg.agent.sub_agents:
+            sub_mcp_configs, sub_blacklist = create_mcp_server_parameters(
+                cfg, cfg.agent.sub_agents[sub_agent]
+            )
+            _sub_tm = ToolManager(sub_mcp_configs, tool_blacklist=sub_blacklist)
+            try:
+                sub_agent_tool_definitions[sub_agent] = await asyncio.wait_for(
+                    _sub_tm.get_all_tool_definitions(),
+                    timeout=int(os.getenv("MIROFLOW_TOOL_DEFS_TIMEOUT_S", "30")),
+                )
+            except (asyncio.TimeoutError, Exception):
+                sub_agent_tool_definitions[sub_agent] = None
+
     path_tool_managers = []
     path_sub_managers = []
     for i in range(len(strategies)):
-        # Create fresh tool managers for each path
+        # Create fresh tool managers for each path (used for tool EXECUTION only)
         main_mcp_configs, main_blacklist = create_mcp_server_parameters(
             cfg, cfg.agent.main_agent
         )
