@@ -140,11 +140,28 @@ def _classify_question_level(task_log: dict) -> int:
 
 
 def _normalize(s: str) -> str:
-    """Normalize answer string for comparison."""
+    """Normalize answer string for comparison.
+
+    Handles common format variants:
+    - Boxed answers: ``{Yes}`` → ``yes``
+    - Python list strings: ``['C', 'P']`` → ``c,p``
+    - Whitespace and escapes
+    """
     if not s:
         return ""
     s = s.strip().lower()
-    s = re.sub(r"[\\{}\s]", "", s)
+    # Try to parse Python list literals like "['Yes']" or "['C', 'P']"
+    if s.startswith("["):
+        try:
+            import ast
+            parsed = ast.literal_eval(s)
+            if isinstance(parsed, list):
+                s = ",".join(str(x).strip().lower() for x in parsed)
+                return s
+        except Exception:
+            pass
+    # Strip braces, backslashes, whitespace, quotes
+    s = re.sub(r"[\\{}\s'\"\[\]]", "", s)
     return s
 
 
