@@ -991,9 +991,14 @@ class GenericEvaluator(BenchmarkEvaluator):
         task_description = task.task_question
         end_time = task.metadata.get("end_time", "")
         if end_time:
-            deadline = str(end_time).split(" ")[0]
+            deadline_date = str(end_time).split(" ")[0]
+            # Subtract one day to avoid leaking resolution-day information
+            from datetime import datetime, timedelta
+            deadline_dt = datetime.strptime(deadline_date, "%Y-%m-%d")
+            search_cutoff = (deadline_dt - timedelta(days=1)).strftime("%Y-%m-%d")
+            deadline = deadline_date  # keep original for prompt text
             # Set env var — ToolManager auto-injects before_date into all search tool calls
-            os.environ["SEARCH_BEFORE_DATE"] = deadline
+            os.environ["SEARCH_BEFORE_DATE"] = search_cutoff
             task_description += (
                 f"\n\nIMPORTANT TIME CONSTRAINT: This event is expected to resolve around {deadline}. "
                 f"You must ONLY use information that was available BEFORE {deadline}. "
