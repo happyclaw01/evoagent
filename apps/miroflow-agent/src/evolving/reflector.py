@@ -424,12 +424,24 @@ async def _reflect_comparison(
     """Generate a cross-path comparison experience."""
 
     # Build path summaries text
+    # Supports both tuple format (summary, answer, log_path, strategy_name, metadata)
+    # and dict format {"strategy_name":..., "answer":..., "status":..., "summary":...}
     path_lines = []
     for i, result in enumerate(path_results):
-        if result is None or len(result) < 5:
+        if result is None:
             continue
-        summary, answer, log_path, strategy_name, metadata = result
-        status = metadata.get("status", "unknown") if isinstance(metadata, dict) else "unknown"
+
+        # Normalise to common variables regardless of input format
+        if isinstance(result, dict):
+            strategy_name = result.get("strategy_name", f"path_{i}")
+            answer = result.get("answer", "")
+            status = result.get("status", "unknown")
+            metadata = result  # dict itself acts as metadata
+        elif hasattr(result, "__len__") and len(result) >= 5:
+            summary, answer, log_path, strategy_name, metadata = result
+            status = metadata.get("status", "unknown") if isinstance(metadata, dict) else "unknown"
+        else:
+            continue
 
         is_correct = _normalize(answer) == _normalize(ground_truth) if answer else False
         result_str = "CORRECT" if is_correct else "INCORRECT"
@@ -439,8 +451,8 @@ async def _reflect_comparison(
             f"- Status: {status}\n"
             f"- Answer: {answer[:200] if answer else '(empty)'}\n"
             f"- Result: {result_str}\n"
-            f"- Duration: {metadata.get('elapsed_seconds', '?')}s\n"
-            f"- Turns: {metadata.get('turns', '?')}"
+            f"- Duration: {metadata.get('elapsed_seconds', '?') if isinstance(metadata, dict) else '?'}s\n"
+            f"- Turns: {metadata.get('turns', '?') if isinstance(metadata, dict) else '?'}"
         )
 
     if len(path_lines) < 2:

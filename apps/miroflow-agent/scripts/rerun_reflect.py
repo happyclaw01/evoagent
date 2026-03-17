@@ -9,8 +9,8 @@ from src.evolving.reflector import reflect_on_task, _reflect_comparison
 from src.evolving.experience_store import ExperienceStore
 from openai import AsyncOpenAI
 
-log_dir = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'logs', 'futurex_l4_10_multipath_test')
-exp_file = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'data', 'experiences.jsonl')
+log_dir = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'logs', 'futurex_cat10_r4_noevolve')
+exp_file = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'data', 'experiences_r4.jsonl')
 
 client = AsyncOpenAI(
     api_key=os.environ['OPENAI_API_KEY'],
