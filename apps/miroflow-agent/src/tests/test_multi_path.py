@@ -44,7 +44,7 @@ class TestStrategyDefinitions(unittest.TestCase):
         """Verify all predefined strategies exist"""
         from src.core.multi_path import STRATEGY_VARIANTS
 
-        expected_strategies = ["breadth_first", "depth_first", "lateral_thinking"]
+        expected_strategies = ["breadth_first", "depth_first", "lateral_thinking", "intel_analysis", "devils_advocate"]
         actual_names = [s["name"] for s in STRATEGY_VARIANTS]
 
         for expected in expected_strategies:
