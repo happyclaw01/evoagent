@@ -1,0 +1,16 @@
+# conf/agent/single_agent_futurex.yaml
+# Minimal agent for FutureX: search + python + reading (no jina_scrape_llm_summary)
+defaults:
+  - default
+  - _self_
+
+main_agent:
+  tools:
+    - search_and_scrape_webpage
+    - tool-python
+    - tool-reading
+  max_turns: 600
+
+sub_agents:
+
+keep_tool_result: 5

@@ -22,17 +22,61 @@ TENCENTCLOUD_SECRET_KEY = os.environ.get("TENCENTCLOUD_SECRET_KEY", "")
 JINA_API_KEY = os.environ.get("JINA_API_KEY", "")
 JINA_BASE_URL = os.environ.get("JINA_BASE_URL", "https://r.jina.ai")
 
+def _get_search_before_date() -> str:
+    return os.environ.get("SEARCH_BEFORE_DATE", "")
+
 # Initialize FastMCP server
 mcp = FastMCP("searching-sougou-mcp-server")
 
 
+def _filter_pages_by_date(pages: list, before_date: str) -> list:
+    """Filter search result pages to only include those published before the given date.
+
+    Args:
+        pages: List of page dicts, each with a 'date' field (various formats).
+        before_date: Cut-off date in 'YYYY-MM-DD' format.
+
+    Returns:
+        Filtered list of pages.
+    """
+    from datetime import datetime
+
+    try:
+        cutoff = datetime.strptime(before_date.strip().split(" ")[0], "%Y-%m-%d")
+    except ValueError:
+        return pages  # Invalid date, return unfiltered
+
+    filtered = []
+    for page in pages:
+        date_str = page.get("date", "")
+        if not date_str:
+            filtered.append(page)  # No date info, keep it
+            continue
+        try:
+            # Try common date formats
+            for fmt in ("%Y-%m-%d", "%Y-%m-%d %H:%M:%S", "%Y年%m月%d日", "%m/%d/%Y"):
+                try:
+                    page_date = datetime.strptime(date_str.strip()[:10], fmt)
+                    if page_date <= cutoff:
+                        filtered.append(page)
+                    break
+                except ValueError:
+                    continue
+            else:
+                filtered.append(page)  # Unparseable date, keep it
+        except Exception:
+            filtered.append(page)
+    return filtered
+
+
 @mcp.tool()
-async def sougou_search(Query: str, Cnt: int = 10) -> str:
+async def sougou_search(Query: str, Cnt: int = 10, before_date: str = "") -> str:
     """Performs web searches using the Tencent Cloud SearchPro API to retrieve comprehensive information, with Sougou search offering superior results for Chinese-language queries.
 
     Args:
         Query: The core search query string. Be specific to improve result relevance (e.g., "2024 World Cup final results"). (Required, no default value)
         Cnt: Number of search results to return (Can only be 10/20/30/40/50). Optional, default: 10)
+        before_date: Optional cut-off date (YYYY-MM-DD). Only return results published before this date. Useful for predicting future events — prevents seeing results after the event resolved.
 
     Returns:
         The search results in JSON format, including the following core fields:
@@ -75,6 +119,10 @@ async def sougou_search(Query: str, Cnt: int = 10) -> str:
                 new_page["site"] = page_json["site"]
                 # new_page["favicon"] = page_json["favicon"]
                 pages.append(new_page)
+            # Apply before_date: explicit param > env var SEARCH_BEFORE_DATE
+            effective_before_date = before_date or _get_search_before_date()
+            if effective_before_date:
+                pages = _filter_pages_by_date(pages, effective_before_date)
             result["Pages"] = pages
             return json.dumps(result, ensure_ascii=False)
         except TencentCloudSDKException:

@@ -21,6 +21,10 @@ SERPER_BASE_URL = os.environ.get("SERPER_BASE_URL", "https://google.serper.dev")
 JINA_API_KEY = os.environ.get("JINA_API_KEY", "")
 JINA_BASE_URL = os.environ.get("JINA_BASE_URL", "https://r.jina.ai")
 
+# Read SEARCH_BEFORE_DATE dynamically (set per-task by pipeline from FutureX end_time)
+def _get_search_before_date() -> str:
+    return os.environ.get("SEARCH_BEFORE_DATE", "")
+
 # Google search result filtering environment variables
 REMOVE_SNIPPETS = os.environ.get("REMOVE_SNIPPETS", "").lower() in ("true", "1", "yes")
 REMOVE_KNOWLEDGE_GRAPH = os.environ.get("REMOVE_KNOWLEDGE_GRAPH", "").lower() in (
@@ -81,6 +85,21 @@ def filter_google_search_result(result_content: str) -> str:
         return result_content
 
 
+def _before_date_to_tbs(before_date: str) -> str | None:
+    """Convert a 'YYYY-MM-DD' before_date into a Google tbs custom date range.
+
+    Uses 'cdr:1,cd_min:1/1/2000,cd_max:M/D/YYYY' format to restrict results
+    to before the given date. Returns None on invalid input.
+    """
+    try:
+        clean = before_date.strip().split(" ")[0]  # Take date part only
+        dt = datetime.datetime.strptime(clean, "%Y-%m-%d")
+        # Google custom date range format: cdr:1,cd_min:MM/DD/YYYY,cd_max:MM/DD/YYYY
+        return f"cdr:1,cd_min:1/1/2000,cd_max:{dt.month}/{dt.day}/{dt.year}"
+    except (ValueError, AttributeError):
+        return None
+
+
 @mcp.tool()
 async def google_search(
     q: str,
@@ -89,6 +108,7 @@ async def google_search(
     location: str = None,
     num: int = 10,
     tbs: str = None,
+    before_date: str = None,
     page: int = 1,
 ) -> str:
     """Perform google searches via Serper API and retrieve rich results.
@@ -101,11 +121,18 @@ async def google_search(
         location: City-level location for search results (e.g., 'SoHo, New York, United States', 'California, United States').
         num: The number of results to return (default: 10).
         tbs: Time-based search filter ('qdr:h' for past hour, 'qdr:d' for past day, 'qdr:w' for past week, 'qdr:m' for past month, 'qdr:y' for past year).
+        before_date: Optional cut-off date (YYYY-MM-DD). Only return results published before this date. Useful for predicting future events — prevents seeing results after the event resolved. Overrides tbs if both provided.
         page: The page number of results to return (default: 1).
 
     Returns:
         The search results.
     """
+    # Apply before_date: explicit param > env var SEARCH_BEFORE_DATE
+    effective_before_date = before_date or _get_search_before_date()
+    if effective_before_date:
+        tbs_from_date = _before_date_to_tbs(effective_before_date)
+        if tbs_from_date:
+            tbs = tbs_from_date
     if SERPER_API_KEY == "":
         return (
             "[ERROR]: SERPER_API_KEY is not set, google_search tool is not available."

@@ -45,6 +45,10 @@ ANTHROPIC_BASE_URL = os.environ.get("ANTHROPIC_BASE_URL", "https://api.anthropic
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
 
+# API for SerpAPI (multi-engine: Google, Bing, Baidu, Yahoo, Yandex)
+SERPAPI_API_KEY = os.environ.get("SERPAPI_API_KEY")
+SERPAPI_BASE_URL = os.environ.get("SERPAPI_BASE_URL", "https://serpapi.com")
+
 # API for Sougou Search
 TENCENTCLOUD_SECRET_ID = os.environ.get("TENCENTCLOUD_SECRET_ID")
 TENCENTCLOUD_SECRET_KEY = os.environ.get("TENCENTCLOUD_SECRET_KEY")
@@ -81,6 +85,34 @@ def create_mcp_server_parameters(cfg: DictConfig, agent_cfg: DictConfig):
                     env={
                         "SERPER_API_KEY": SERPER_API_KEY,
                         "SERPER_BASE_URL": SERPER_BASE_URL,
+                        "JINA_API_KEY": JINA_API_KEY,
+                        "JINA_BASE_URL": JINA_BASE_URL,
+                    },
+                ),
+            }
+        )
+
+    if (
+        agent_cfg.get("tools", None) is not None
+        and "tool-serpapi-search" in agent_cfg["tools"]
+    ):
+        if not SERPAPI_API_KEY:
+            raise ValueError(
+                "SERPAPI_API_KEY not set, tool-serpapi-search will be unavailable."
+            )
+
+        configs.append(
+            {
+                "name": "tool-serpapi-search",
+                "params": StdioServerParameters(
+                    command=sys.executable,
+                    args=[
+                        "-m",
+                        "miroflow_tools.mcp_servers.searching_serpapi_mcp_server",
+                    ],
+                    env={
+                        "SERPAPI_API_KEY": SERPAPI_API_KEY,
+                        "SERPAPI_BASE_URL": SERPAPI_BASE_URL,
                         "JINA_API_KEY": JINA_API_KEY,
                         "JINA_BASE_URL": JINA_BASE_URL,
                     },
@@ -392,6 +424,7 @@ def get_env_info(cfg: DictConfig) -> dict:
         ),
         # API Keys (masked for security)
         "has_serper_api_key": bool(SERPER_API_KEY),
+        "has_serpapi_api_key": bool(SERPAPI_API_KEY),
         "has_jina_api_key": bool(JINA_API_KEY),
         "has_anthropic_api_key": bool(ANTHROPIC_API_KEY),
         "has_openai_api_key": bool(OPENAI_API_KEY),
@@ -404,6 +437,7 @@ def get_env_info(cfg: DictConfig) -> dict:
         "anthropic_base_url": ANTHROPIC_BASE_URL,
         "jina_base_url": JINA_BASE_URL,
         "serper_base_url": SERPER_BASE_URL,
+        "serpapi_base_url": SERPAPI_BASE_URL,
         "whisper_base_url": WHISPER_BASE_URL,
         "vision_base_url": VISION_BASE_URL,
         "reasoning_base_url": REASONING_BASE_URL,

@@ -1,0 +1,16 @@
+# conf/benchmark/futurex_250924.yaml - FutureX 250924-250930 dataset (141 questions)
+defaults:
+  - default
+  - _self_
+
+name: "futurex"
+
+data:
+  data_dir: "/home/chenzhewen/futurex"
+  metadata_file: "standardized_data_250924_250930.jsonl"
+
+execution:
+  max_tasks: null
+  max_concurrent: 3
+  pass_at_k: 1
+  format_error_retry_limit: 3

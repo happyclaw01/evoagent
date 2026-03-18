@@ -1,6 +1,10 @@
 # Copyright (c) 2025 MiroMind
 # This source code is licensed under the MIT License.
 
+# Load .env BEFORE any other imports so Hydra/OmegaConf ${VAR} interpolations work
+from dotenv import load_dotenv as _load_dotenv
+_load_dotenv()
+
 import asyncio
 import gc
 import json
@@ -31,6 +35,7 @@ print("[debug] importing src.core.pipeline (create_pipeline_components, execute_
 from src.core.pipeline import (
     create_pipeline_components,
     execute_task_pipeline,
+    execute_multi_path_task_pipeline,
 )
 print("[debug] imported src.core.pipeline", flush=True)
 
@@ -323,21 +328,45 @@ class BenchmarkEvaluator(ABC):
 
                     while format_retry_count <= max_format_retries:
                         try:
-                            (
-                                response,
-                                final_boxed_answer,
-                                log_file_path,
-                            ) = await execute_task_pipeline(
-                                cfg=self.cfg,
-                                task_id=f"{task.task_id}_attempt-{attempt}_format-retry-{format_retry_count}",
-                                task_file_name=task_file_path,
-                                task_description=task_description,
-                                main_agent_tool_manager=self.main_agent_tool_manager,
-                                sub_agent_tool_managers=self.sub_agent_tool_managers,
-                                output_formatter=self.output_formatter,
-                                ground_truth=task.ground_truth,
-                                log_dir=str(self.get_log_dir()),
-                            )
+                            # Check if multi-path is enabled
+                            multi_path_cfg = self.cfg.benchmark.get("multi_path", {})
+                            use_multi_path = multi_path_cfg.get("enabled", False)
+
+                            if use_multi_path:
+                                (
+                                    response,
+                                    final_boxed_answer,
+                                    log_file_path,
+                                ) = await execute_multi_path_task_pipeline(
+                                    cfg=self.cfg,
+                                    task_id=f"{task.task_id}_attempt-{attempt}_format-retry-{format_retry_count}",
+                                    task_file_name=task_file_path,
+                                    task_description=task_description,
+                                    main_agent_tool_manager=self.main_agent_tool_manager,
+                                    sub_agent_tool_managers=self.sub_agent_tool_managers,
+                                    output_formatter=self.output_formatter,
+                                    ground_truth=task.ground_truth,
+                                    log_dir=str(self.get_log_dir()),
+                                    num_paths=multi_path_cfg.get("num_paths", 3),
+                                    early_stop_k=multi_path_cfg.get("early_stop_k", 2),
+                                    early_stop_threshold=multi_path_cfg.get("early_stop_threshold", 1.0),
+                                )
+                            else:
+                                (
+                                    response,
+                                    final_boxed_answer,
+                                    log_file_path,
+                                ) = await execute_task_pipeline(
+                                    cfg=self.cfg,
+                                    task_id=f"{task.task_id}_attempt-{attempt}_format-retry-{format_retry_count}",
+                                    task_file_name=task_file_path,
+                                    task_description=task_description,
+                                    main_agent_tool_manager=self.main_agent_tool_manager,
+                                    sub_agent_tool_managers=self.sub_agent_tool_managers,
+                                    output_formatter=self.output_formatter,
+                                    ground_truth=task.ground_truth,
+                                    log_dir=str(self.get_log_dir()),
+                                )
 
                             attempt_result["model_boxed_answer"] = (
                                 final_boxed_answer if final_boxed_answer else ""
@@ -726,7 +755,7 @@ class BenchmarkEvaluator(ABC):
 
             # Extract F1 score from judge_type if available (futurex)
             for attempt in result.attempts:
-                jt = attempt.get("judge_type", "")
+                jt = attempt.get("judge_type", "") or ""
                 if "futurex_f1" in jt:
                     import re as _re
                     m = _re.search(r"futurex_f1\(([\d.]+)\)", jt)
@@ -962,7 +991,14 @@ class GenericEvaluator(BenchmarkEvaluator):
         task_description = task.task_question
         end_time = task.metadata.get("end_time", "")
         if end_time:
-            deadline = str(end_time).split(" ")[0]
+            deadline_date = str(end_time).split(" ")[0]
+            # Subtract one day to avoid leaking resolution-day information
+            from datetime import datetime, timedelta
+            deadline_dt = datetime.strptime(deadline_date, "%Y-%m-%d")
+            search_cutoff = (deadline_dt - timedelta(days=1)).strftime("%Y-%m-%d")
+            deadline = deadline_date  # keep original for prompt text
+            # Set env var — ToolManager auto-injects before_date into all search tool calls
+            os.environ["SEARCH_BEFORE_DATE"] = search_cutoff
             task_description += (
                 f"\n\nIMPORTANT TIME CONSTRAINT: This event is expected to resolve around {deadline}. "
                 f"You must ONLY use information that was available BEFORE {deadline}. "
@@ -970,6 +1006,9 @@ class GenericEvaluator(BenchmarkEvaluator):
                 f"Your goal is to PREDICT the outcome based on pre-deadline evidence, not to look up what already happened. "
                 f"If you encounter any source that reveals the actual outcome or resolution result, you MUST IGNORE it and base your prediction solely on information available before {deadline}."
             )
+        else:
+            # Clear date filter for tasks without end_time
+            os.environ.pop("SEARCH_BEFORE_DATE", None)
 
         return task_description, task_file_path
 

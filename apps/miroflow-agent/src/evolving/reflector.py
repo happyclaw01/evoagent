@@ -51,6 +51,38 @@ Analyze the agent's strategy and produce a JSON object with ALL of the following
 - "tools_used": list of tools the agent actually used, e.g. ["web_search", "code_execution", "solver", "browsing"]
 - "strategy_name": short name for the overall strategy the agent adopted (e.g. "search_heavy", "code_compute", "multi_source_verify", "direct_reasoning")
 
+CRITICAL: Do NOT include the ground truth answer, specific correct values, names, or options in the "lesson" field. Focus ONLY on methodology improvements. For example, write "should verify with multiple recent sources" instead of "the correct answer was X". The lessons will be injected into future runs, so leaking answers would invalidate the evaluation.
+
+Return ONLY the JSON object, no other text."""
+
+# ---------------------------------------------------------------------------
+# Multi-path comparison reflection prompt
+# ---------------------------------------------------------------------------
+
+MULTI_PATH_COMPARISON_PROMPT = """\
+You are analyzing how multiple parallel agent paths performed on the SAME prediction task, each using a different search strategy. Your job is to compare the paths and extract lessons about which strategies work best for this type of question.
+
+## Task
+Question: {question}
+Ground Truth: {ground_truth}
+
+## Path Results
+{path_summaries}
+
+## Instructions
+Analyze the differences between paths and produce a JSON object with ALL fields:
+- "question_type": categorize the question (e.g. "sports_event", "finance_market", "politics_election", etc.)
+- "question_summary": one-line summary of the question
+- "knowledge_domain": one of "finance", "sports", "geopolitics", "tech", "entertainment", "science", "other"
+- "winning_strategy": name of the strategy that produced the correct answer (or "none" if all failed)
+- "losing_strategies": list of strategy names that failed
+- "comparison_lesson": a concrete lesson about WHY the winning strategy worked and the losing ones didn't (2-3 sentences). If all failed, explain what all paths missed.
+- "strategy_insights": dict mapping each strategy_name to a brief insight about its performance on this question
+- "recommended_strategies": list of strategy names recommended for this question type (based on this comparison)
+- "avoid_strategies": list of strategy names to avoid for this question type
+
+CRITICAL: Do NOT include the ground truth answer, specific correct values, names, or options in your lesson or insights. Focus ONLY on methodology and strategy lessons. For example, write "missed late-stage polling shifts" instead of "missed that Candidate X overtook Candidate Y". The experiences will be injected into future runs on similar questions, so leaking answers would invalidate the evaluation.
+
 Return ONLY the JSON object, no other text."""
 
 # ---------------------------------------------------------------------------
@@ -108,11 +140,28 @@ def _classify_question_level(task_log: dict) -> int:
 
 
 def _normalize(s: str) -> str:
-    """Normalize answer string for comparison."""
+    """Normalize answer string for comparison.
+
+    Handles common format variants:
+    - Boxed answers: ``{Yes}`` → ``yes``
+    - Python list strings: ``['C', 'P']`` → ``c,p``
+    - Whitespace and escapes
+    """
     if not s:
         return ""
     s = s.strip().lower()
-    s = re.sub(r"[\\{}\s]", "", s)
+    # Try to parse Python list literals like "['Yes']" or "['C', 'P']"
+    if s.startswith("["):
+        try:
+            import ast
+            parsed = ast.literal_eval(s)
+            if isinstance(parsed, list):
+                s = ",".join(str(x).strip().lower() for x in parsed)
+                return s
+        except Exception:
+            pass
+    # Strip braces, backslashes, whitespace, quotes
+    s = re.sub(r"[\\{}\s'\"\[\]]", "", s)
     return s
 
 
@@ -166,7 +215,7 @@ async def reflect_on_task(
 
     create_kwargs: dict[str, Any] = dict(
         messages=[{"role": "user", "content": prompt}],
-        max_completion_tokens=1024,
+        max_completion_tokens=4096,
         temperature=0.3,
     )
     if model:
@@ -174,7 +223,10 @@ async def reflect_on_task(
 
     try:
         response = await llm_client.chat.completions.create(**create_kwargs)
-        content = response.choices[0].message.content.strip()
+        content = (response.choices[0].message.content or "").strip()
+        if not content:
+            logger.warning(f"Reflection returned empty content for task {task_log.get('task_id', '?')}")
+            return None
 
         json_match = re.search(r"\{[\s\S]*\}", content)
         if json_match:
@@ -292,6 +344,239 @@ async def auto_reflect_after_task(
         )
     except Exception as e:
         logger.warning(f"auto_reflect_after_task failed: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Multi-path reflection
+# ---------------------------------------------------------------------------
+
+
+async def reflect_on_multi_path(
+    path_results: list,
+    task_description: str,
+    ground_truth: str,
+    llm_client: Any,
+    model: str = "",
+    experience_store: Optional["ExperienceStore"] = None,
+) -> list:
+    """Reflect on all paths of a multi-path execution.
+
+    1. Reflects on each path individually (reuses reflect_on_task)
+    2. Generates a cross-path comparison experience
+
+    Args:
+        path_results: List of tuples (summary, answer, log_path, strategy_name, metadata)
+                      as returned by execute_multi_path_pipeline's internal results.
+        task_description: The original question.
+        ground_truth: Expected correct answer.
+        llm_client: OpenAI-compatible async client.
+        model: Model name (empty = client default).
+        experience_store: If provided, experiences are written automatically.
+
+    Returns:
+        List of generated experience dicts (individual + comparison).
+    """
+    experiences = []
+
+    # --- Step 1: Reflect on each path individually ---
+    for i, result in enumerate(path_results):
+        if result is None or len(result) < 5:
+            continue
+
+        summary, answer, log_path, strategy_name, metadata = result
+        status = metadata.get("status", "unknown") if isinstance(metadata, dict) else "unknown"
+
+        if not log_path or status == "cancelled":
+            continue
+
+        # Load the path's TaskLog
+        try:
+            with open(log_path, "r", encoding="utf-8") as f:
+                task_log_dict = json.load(f)
+        except Exception as e:
+            logger.warning(f"Could not load log for path {i} ({strategy_name}): {e}")
+            continue
+
+        exp = await reflect_on_task(
+            task_log_dict,
+            ground_truth,
+            llm_client,
+            model=model,
+            experience_store=None,  # Don't write yet, we'll add strategy_name first
+        )
+
+        if exp:
+            # Ensure strategy_name is correctly set from the multi-path metadata
+            exp["strategy_name"] = strategy_name
+            exp["task_id"] = f"{exp.get('task_id', '')}"  # Keep path-specific task_id
+
+            if experience_store is not None:
+                experience_store.add(exp)
+
+            experiences.append(exp)
+
+    # --- Step 2: Cross-path comparison reflection ---
+    if len(path_results) >= 2 and ground_truth:
+        comparison_exp = await _reflect_comparison(
+            path_results=path_results,
+            task_description=task_description,
+            ground_truth=ground_truth,
+            llm_client=llm_client,
+            model=model,
+        )
+        if comparison_exp and experience_store is not None:
+            experience_store.add(comparison_exp)
+            experiences.append(comparison_exp)
+
+    return experiences
+
+
+async def _reflect_comparison(
+    path_results: list,
+    task_description: str,
+    ground_truth: str,
+    llm_client: Any,
+    model: str = "",
+) -> Optional[dict]:
+    """Generate a cross-path comparison experience."""
+
+    # Build path summaries text
+    # Supports both tuple format (summary, answer, log_path, strategy_name, metadata)
+    # and dict format {"strategy_name":..., "answer":..., "status":..., "summary":...}
+    path_lines = []
+    for i, result in enumerate(path_results):
+        if result is None:
+            continue
+
+        # Normalise to common variables regardless of input format
+        if isinstance(result, dict):
+            strategy_name = result.get("strategy_name", f"path_{i}")
+            answer = result.get("answer", "")
+            status = result.get("status", "unknown")
+            metadata = result  # dict itself acts as metadata
+        elif hasattr(result, "__len__") and len(result) >= 5:
+            summary, answer, log_path, strategy_name, metadata = result
+            status = metadata.get("status", "unknown") if isinstance(metadata, dict) else "unknown"
+        else:
+            continue
+
+        is_correct = _normalize(answer) == _normalize(ground_truth) if answer else False
+        result_str = "CORRECT" if is_correct else "INCORRECT"
+
+        path_lines.append(
+            f"### Path {i}: {strategy_name}\n"
+            f"- Status: {status}\n"
+            f"- Answer: {answer[:200] if answer else '(empty)'}\n"
+            f"- Result: {result_str}\n"
+            f"- Duration: {metadata.get('elapsed_seconds', '?') if isinstance(metadata, dict) else '?'}s\n"
+            f"- Turns: {metadata.get('turns', '?') if isinstance(metadata, dict) else '?'}"
+        )
+
+    if len(path_lines) < 2:
+        return None
+
+    prompt = MULTI_PATH_COMPARISON_PROMPT.format(
+        question=task_description[:2000],
+        ground_truth=ground_truth,
+        path_summaries="\n\n".join(path_lines),
+    )
+
+    create_kwargs: dict[str, Any] = dict(
+        messages=[{"role": "user", "content": prompt}],
+        max_completion_tokens=4096,
+        temperature=0.3,
+    )
+    if model:
+        create_kwargs["model"] = model
+
+    try:
+        response = await llm_client.chat.completions.create(**create_kwargs)
+        content = (response.choices[0].message.content or "").strip()
+        if not content:
+            logger.warning("Multi-path comparison reflection returned empty content")
+            return None
+
+        json_match = re.search(r"\{[\s\S]*\}", content)
+        if json_match:
+            comparison = json.loads(json_match.group())
+            # Create a comparison experience record
+            comparison["task_id"] = f"comparison_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
+            comparison["was_correct"] = bool(comparison.get("winning_strategy") and comparison["winning_strategy"] != "none")
+            comparison["lesson"] = comparison.get("comparison_lesson", "")
+            comparison["failure_pattern"] = "multi_path_comparison"
+            comparison["strategy_name"] = comparison.get("winning_strategy", "none")
+            comparison["tools_used"] = ["multi_path"]
+            comparison["reasoning_type"] = "multi_step"
+            comparison["level"] = 2
+            comparison["created_at"] = datetime.now(timezone.utc).isoformat()
+            comparison["search_strategy"] = f"multi-path comparison: {', '.join(comparison.get('recommended_strategies', []))}"
+            return comparison
+    except Exception as e:
+        logger.warning(f"Multi-path comparison reflection failed: {e}")
+
+    return None
+
+
+async def auto_reflect_multi_path(
+    path_results: list,
+    task_description: str,
+    ground_truth: str,
+    cfg: "DictConfig",
+    experience_store: "ExperienceStore",
+) -> None:
+    """Called by multi_path.py after task completion.
+
+    Only runs when ``evolving.enabled`` and ``evolving.auto_reflect`` are true
+    and ground_truth is present. Exceptions are caught internally.
+    """
+    try:
+        import os as _os
+
+        evolving_cfg = cfg.get("evolving", {})
+        if not evolving_cfg.get("enabled", False):
+            return
+        if not evolving_cfg.get("auto_reflect", True):
+            return
+        if not ground_truth:
+            return
+
+        from openai import AsyncOpenAI
+
+        # Read from env to avoid Hydra interpolation issues
+        try:
+            api_key = cfg.llm.get("api_key", "")
+        except Exception:
+            api_key = _os.environ.get("ANTHROPIC_API_KEY", "")
+        try:
+            base_url = cfg.llm.get("base_url", "")
+        except Exception:
+            base_url = _os.environ.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com")
+        try:
+            model = evolving_cfg.get("reflection_model", "") or cfg.llm.get("model_name", "")
+        except Exception:
+            model = evolving_cfg.get("reflection_model", "") or "claude-sonnet-4-20250514"
+
+        llm_client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+
+        await reflect_on_multi_path(
+            path_results=path_results,
+            task_description=task_description,
+            ground_truth=ground_truth,
+            llm_client=llm_client,
+            model=model,
+            experience_store=experience_store,
+        )
+
+        # Aggregate strategy preferences after new experiences
+        from .strategy_evolver import StrategyEvolver
+        prefs_file = evolving_cfg.get("strategy_preferences_file", "")
+        overrides_file = evolving_cfg.get("prompt_overrides_file", "")
+        if prefs_file or overrides_file:
+            evolver = StrategyEvolver(experience_store, prefs_file, overrides_file)
+            evolver.aggregate_strategy_preferences()
+
+    except Exception as e:
+        logger.warning(f"auto_reflect_multi_path failed: {e}")
 
 
 # ---------------------------------------------------------------------------

@@ -16,7 +16,9 @@
 import asyncio
 import copy
 import logging
+import os
 import uuid
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from miroflow_tools.manager import ToolManager
@@ -29,6 +31,9 @@ from ..logging.task_logger import TaskLog, get_utc_plus_8_time
 
 # EA-304: Cost Tracker
 from .cost_tracker import CostTracker, format_cost_report
+
+# EA-307: OpenViking Context
+from .openviking_context import OpenVikingContext, Discovery
 
 # EA-011: Streaming
 from .streaming import (
@@ -121,6 +126,7 @@ async def _run_with_early_stopping(
     early_stop_threshold: float,
     master_log,
     log_dir: str,
+    task_id: str = "",
 ) -> List:
     """
     Run tasks with early stopping: cancel remaining tasks when consensus is reached.
@@ -135,9 +141,10 @@ async def _run_with_early_stopping(
     async_tasks = [asyncio.create_task(t) for t in tasks]
     
     while pending:
-        # Wait for any task to complete
+        # Wait for any task to complete — only pass pending tasks
+        pending_tasks = [async_tasks[i] for i in pending]
         done, still_pending = await asyncio.wait(
-            async_tasks,
+            pending_tasks,
             return_when=asyncio.FIRST_COMPLETED
         )
         
@@ -286,6 +293,70 @@ STRATEGY_VARIANTS = [
 ]
 
 
+def _select_strategies(
+    cfg: DictConfig,
+    task_description: str,
+    num_paths: int,
+) -> List[Dict]:
+    """Select strategies based on StrategyEvolver preferences (if available).
+
+    If evolving is enabled and strategy_preferences.json has recommendations
+    for the detected question type, prioritize recommended strategies.
+    Falls back to default STRATEGY_VARIANTS[:num_paths].
+    """
+    default = STRATEGY_VARIANTS[:num_paths]
+
+    evolving_cfg = cfg.get("evolving", {})
+    if not evolving_cfg.get("enabled", False):
+        return default
+
+    try:
+        from ..evolving.experience_injector import ExperienceInjector
+        from ..evolving.experience_store import ExperienceStore
+        from ..evolving.strategy_evolver import StrategyEvolver
+
+        prefs_file = evolving_cfg.get("strategy_preferences_file", "")
+        if not prefs_file:
+            return default
+
+        store = ExperienceStore(evolving_cfg.get("experience_file", ""))
+        evolver = StrategyEvolver(store, prefs_file, evolving_cfg.get("prompt_overrides_file", ""))
+
+        prefs = evolver.load_strategy_preferences()
+        if not prefs or not prefs.get("stats"):
+            return default
+
+        # Classify the task to find question_type
+        labels = ExperienceInjector._classify_via_rules(task_description)
+        question_type = labels.get("question_type", "")
+        if not question_type:
+            return default
+
+        recs = prefs.get("recommendations", {}).get(question_type, [])
+        if isinstance(recs, str) or not recs:
+            return default
+
+        # Build strategy list: recommended first, then fill with others
+        strategy_map = {s["name"]: s for s in STRATEGY_VARIANTS}
+        selected = []
+        for name in recs:
+            if name in strategy_map and len(selected) < num_paths:
+                selected.append(strategy_map[name])
+        for s in STRATEGY_VARIANTS:
+            if s not in selected and len(selected) < num_paths:
+                selected.append(s)
+
+        logger.info(
+            f"Dynamic strategy selection for '{question_type}': "
+            f"{[s['name'] for s in selected]} (recommended: {recs})"
+        )
+        return selected
+
+    except Exception as e:
+        logger.warning(f"Strategy selection failed, using defaults: {e}")
+        return default
+
+
 async def _run_single_path(
     *,
     cfg: DictConfig,
@@ -303,10 +374,13 @@ async def _run_single_path(
     sub_agent_tool_definitions: Optional[Dict[str, List[Dict[str, Any]]]] = None,
     # EA-010: Custom max_turns per strategy (optional override)
     max_turns: Optional[int] = None,
+    # EA-307: OpenViking context for cross-path sharing
+    viking_context: Optional[OpenVikingContext] = None,
 ) -> Tuple[str, str, str, str, Dict]:
     """
     EA-001: Run a single agent path with a specific strategy.
     EA-006: Each path creates its own TaskLog for isolated logging.
+    EA-307: Optionally loads context from OpenViking and shares discoveries.
     
     Returns:
         Tuple of (final_summary, final_boxed_answer, log_file_path, strategy_name, metadata)
@@ -372,11 +446,40 @@ async def _run_single_path(
 
         # EA-002: Inject strategy into the orchestrator's prompt generation
         # Strategy is applied via prompt suffix (DD-001: prompt injection, not code logic)
+        # EA-307: Also inject OpenViking context (discoveries from other paths)
         original_generate = llm_client.generate_agent_system_prompt
+
+        # EA-307: Load task context and cross-path discoveries
+        viking_suffix = ""
+        if viking_context:
+            try:
+                # Load strategy-specific context
+                ctx_blocks = await viking_context.load_task_context(
+                    task_description, strategy_name
+                )
+                if ctx_blocks:
+                    viking_suffix += "\n\n[Context from Knowledge Base]\n"
+                    for block in ctx_blocks:
+                        viking_suffix += f"- {block.content}\n"
+
+                # Query discoveries shared by other paths
+                discoveries = await viking_context.query_shared_discoveries(
+                    task_description, exclude_path=path_task_id
+                )
+                if discoveries:
+                    viking_suffix += "\n[Discoveries from Other Research Paths]\n"
+                    for d in discoveries:
+                        viking_suffix += f"- [{d.strategy}] {d.title}: {d.snippet}\n"
+                    viking_suffix += (
+                        "Use these discoveries as additional leads, "
+                        "but verify them independently.\n"
+                    )
+            except Exception as e:
+                logger.warning(f"OpenViking context loading failed for path {path_index}: {e}")
 
         def strategy_augmented_prompt(date, mcp_servers):
             base_prompt = original_generate(date=date, mcp_servers=mcp_servers)
-            return base_prompt + strategy["prompt_suffix"]
+            return base_prompt + strategy["prompt_suffix"] + viking_suffix
 
         llm_client.generate_agent_system_prompt = strategy_augmented_prompt
 
@@ -442,6 +545,31 @@ async def _run_single_path(
             "tool_calls": tool_calls,
             "duration": round(elapsed, 2),
         }
+
+        # EA-307: Save result and share discoveries via OpenViking
+        if viking_context:
+            try:
+                await viking_context.save_path_result(
+                    path_id=path_task_id,
+                    strategy=strategy_name,
+                    result={"answer": final_boxed_answer, "turns": metadata.get("turns", 0)},
+                    success=True,
+                )
+                # Share key findings as discoveries for other paths
+                if final_boxed_answer:
+                    await viking_context.share_discovery(
+                        path_id=path_task_id,
+                        strategy=strategy_name,
+                        discovery=Discovery(
+                            path_id=path_task_id,
+                            strategy=strategy_name,
+                            uri=f"path://{path_task_id}/answer",
+                            title=f"Path {path_index} ({strategy_name}) conclusion",
+                            snippet=final_boxed_answer[:300],
+                        ),
+                    )
+            except Exception as e:
+                logger.warning(f"OpenViking post-path save failed: {e}")
 
         logger.info(
             f"Path {path_index} ({strategy_name}) completed: answer='{final_boxed_answer[:100]}...'"
@@ -650,7 +778,25 @@ async def execute_multi_path_pipeline(
         Tuple of (final_summary, final_boxed_answer, log_file_path)
     """
     if strategies is None:
-        strategies = STRATEGY_VARIANTS[:num_paths]
+        strategies = _select_strategies(cfg, task_description, num_paths)
+
+    # EA-307: Initialize OpenViking context for cross-path sharing
+    viking_context = None
+    ov_cfg = OmegaConf.to_container(cfg, resolve=True) if cfg else {}
+    ov_enabled = ov_cfg.get("openviking", {}).get("enabled", False) if isinstance(ov_cfg, dict) else False
+    # Also enable in fallback mode (in-memory) when evolving is on
+    evolving_enabled = ov_cfg.get("evolving", {}).get("enabled", False) if isinstance(ov_cfg, dict) else False
+    if ov_enabled or evolving_enabled:
+        try:
+            viking_context = OpenVikingContext(
+                enabled=ov_enabled,
+                fallback_mode=True,  # Always allow in-memory fallback
+            )
+            await viking_context.connect()
+            logger.info(f"OpenViking context initialized (server={'connected' if viking_context._connected else 'fallback'})")
+        except Exception as e:
+            logger.warning(f"OpenViking init failed, continuing without: {e}")
+            viking_context = None
 
     # EA-007: Create master task log for aggregation
     master_log = TaskLog(
@@ -685,10 +831,59 @@ async def execute_multi_path_pipeline(
 
     # EA-005: Create independent ToolManagers for each path to avoid state conflicts
     # DD-002: Each path uses independent ToolManager (MCP connections are stateful)
+    #
+    # FIX: Pre-fetch tool definitions ONCE, then share across all paths.
+    # Tool definitions are static schema data (name, description, inputSchema) —
+    # they contain no runtime state and are identical across paths.
+    # This avoids N×M concurrent MCP subprocess launches (N paths × M servers)
+    # which frequently caused 30s timeouts, leaving paths with empty tool lists.
+    # Actual tool EXECUTION still happens per-path via independent ToolManagers.
+    if not tool_definitions:
+        _prefetch_tm = ToolManager(
+            *create_mcp_server_parameters(cfg, cfg.agent.main_agent)
+        )
+        master_log.log_step(
+            "info",
+            "MultiPath | Tool Prefetch",
+            "Pre-fetching tool definitions once for all paths...",
+        )
+        try:
+            tool_definitions = await asyncio.wait_for(
+                _prefetch_tm.get_all_tool_definitions(),
+                timeout=int(os.getenv("MIROFLOW_TOOL_DEFS_TIMEOUT_S", "30")),
+            )
+            master_log.log_step(
+                "info",
+                "MultiPath | Tool Prefetch",
+                f"Successfully pre-fetched tool definitions: {sum(len(s.get('tools',[])) for s in tool_definitions)} tools from {len(tool_definitions)} servers",
+            )
+        except (asyncio.TimeoutError, Exception) as e:
+            master_log.log_step(
+                "warning",
+                "MultiPath | Tool Prefetch",
+                f"Failed to pre-fetch tool definitions ({e}); paths will retry individually.",
+            )
+            tool_definitions = None  # Let each path try on its own as fallback
+
+    if not sub_agent_tool_definitions and cfg.agent.sub_agents:
+        sub_agent_tool_definitions = {}
+        for sub_agent in cfg.agent.sub_agents:
+            sub_mcp_configs, sub_blacklist = create_mcp_server_parameters(
+                cfg, cfg.agent.sub_agents[sub_agent]
+            )
+            _sub_tm = ToolManager(sub_mcp_configs, tool_blacklist=sub_blacklist)
+            try:
+                sub_agent_tool_definitions[sub_agent] = await asyncio.wait_for(
+                    _sub_tm.get_all_tool_definitions(),
+                    timeout=int(os.getenv("MIROFLOW_TOOL_DEFS_TIMEOUT_S", "30")),
+                )
+            except (asyncio.TimeoutError, Exception):
+                sub_agent_tool_definitions[sub_agent] = None
+
     path_tool_managers = []
     path_sub_managers = []
     for i in range(len(strategies)):
-        # Create fresh tool managers for each path
+        # Create fresh tool managers for each path (used for tool EXECUTION only)
         main_mcp_configs, main_blacklist = create_mcp_server_parameters(
             cfg, cfg.agent.main_agent
         )
@@ -727,6 +922,7 @@ async def execute_multi_path_pipeline(
                     tool_definitions=tool_definitions,
                     sub_agent_tool_definitions=sub_agent_tool_definitions,
                     max_turns=max_trns,
+                    viking_context=viking_context,
                 )
                 # EA-012: Check for retryable failure
                 if len(result) > 4 and isinstance(result[4], dict):
@@ -781,7 +977,7 @@ async def execute_multi_path_pipeline(
         # Use early stopping
         raw_results = await _run_with_early_stopping(
             tasks, strategies, early_stop_k, early_stop_threshold, 
-            master_log, log_dir
+            master_log, log_dir, task_id=task_id
         )
         
         # Post-process results (already in correct format from _run_with_early_stopping)
@@ -848,6 +1044,51 @@ async def execute_multi_path_pipeline(
         "MultiPath | Final",
         f"Selected answer: {best_answer[:200]}",
     )
+
+    # Self-Evolving: Multi-path reflection
+    # Reflect on each path individually + cross-path comparison
+    try:
+        evolving_cfg = cfg.get("evolving", {})
+        if evolving_cfg.get("enabled", False) and ground_truth:
+            from ..evolving.experience_store import ExperienceStore
+            from ..evolving.reflector import auto_reflect_multi_path
+
+            store = ExperienceStore(evolving_cfg.get("experience_file", ""))
+            await auto_reflect_multi_path(
+                path_results=processed_results,
+                task_description=task_description,
+                ground_truth=str(ground_truth),
+                cfg=cfg,
+                experience_store=store,
+            )
+            master_log.log_step(
+                "info",
+                "MultiPath | Reflection",
+                f"Multi-path reflection completed for {len(processed_results)} paths",
+            )
+    except Exception as e:
+        logger.warning(f"Multi-path reflection failed: {e}")
+        master_log.log_step(
+            "warning",
+            "MultiPath | Reflection Error",
+            str(e),
+        )
+
+    # EA-307: Trigger memory iteration and cleanup
+    if viking_context:
+        try:
+            iteration_result = await viking_context.trigger_memory_iteration()
+            stats = viking_context.get_statistics()
+            master_log.log_step(
+                "info",
+                "MultiPath | OpenViking Summary",
+                f"Memories: {stats['total_memories']}, "
+                f"Discoveries: {stats['total_discoveries']}, "
+                f"Recommended strategy: {iteration_result.get('recommended_strategy', 'N/A')}",
+            )
+            await viking_context.close()
+        except Exception as e:
+            logger.warning(f"OpenViking cleanup failed: {e}")
 
     master_log.final_boxed_answer = best_answer
     master_log.status = "success"

@@ -1,0 +1,22 @@
+# conf/benchmark/futurex_cat10.yaml - 10 categorical questions (no platform data, no precise numbers)
+defaults:
+  - default
+  - _self_
+
+name: "futurex"
+
+data:
+  data_dir: "/home/chenzhewen/futurex"
+  metadata_file: "categorical_10_test.jsonl"
+
+execution:
+  max_tasks: null
+  max_concurrent: 1
+  pass_at_k: 1
+  format_error_retry_limit: 3
+
+multi_path:
+  enabled: true
+  num_paths: 3
+  early_stop_k: 2
+  early_stop_threshold: 1.0
