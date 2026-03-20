@@ -8,7 +8,7 @@
 
 ## 〇、一句话总结
 
-**5 个专家视角岛，每次任务由 Question Parser 解析题型后选 3 个岛各出 1 条路径投票。每轮题结束后所有岛各自进化（refine + diverge）。某类题型所有岛都不擅长时，LLM 定义新专家视角，动态开新岛。**
+**5 个专家视角岛，每次任务由 Question Parser 解析题型后，所有岛各出 1 条路径（5 路径并行），投票选最优答案。每轮题结束后所有岛各自进化（refine + diverge）。某类题型所有岛都不擅长时，LLM 定义新专家视角，动态开新岛。**
 
 ---
 
@@ -64,21 +64,22 @@ Task 进入
 │  │ [策略池]   │ │ [策略池]   │ │ [策略池]   │ │ [策略池]   │ │     │ │
 │  └──────────┘ └──────────┘ └──────────┘ └──────────┘ └─────┘ │
 │       │             │            │                             │
-│  根据题型 + 各岛在该题型的胜率，选出最合适的 3 个岛              │
+│  所有岛全部参与，每个岛各出 1 条路径                               │
 │                                                                │
-└────────┬───────────────┬───────────────┬───────────────────────┘
-         │               │               │
-     Island X 选 1 策略  Island Y 选 1 策略  Island Z 选 1 策略
-         │               │               │
-         ▼               ▼               ▼
-      Path 0          Path 1          Path 2
-    (MiroThinker)   (MiroThinker)   (MiroThinker)
-         │               │               │
-         └───────────────┼───────────────┘
-                         ▼
-                   投票 / Judge
-                         ▼
-                     最终答案
+└──┬────────────┬────────────┬────────────┬────────────┬─────────┘
+   │            │            │            │            │
+ Island 0    Island 1    Island 2    Island 3    Island 4
+ 选 1 策略    选 1 策略    选 1 策略    选 1 策略    选 1 策略
+   │            │            │            │            │
+   ▼            ▼            ▼            ▼            ▼
+ Path 0      Path 1      Path 2      Path 3      Path 4
+(MiroThinker)(MiroThinker)(MiroThinker)(MiroThinker)(MiroThinker)
+   │            │            │            │            │
+   └────────────┴────────────┼────────────┴────────────┘
+                             ▼
+                       投票 / Judge
+                             ▼
+                         最终答案
                          │
                     记录结果
                          │
@@ -94,10 +95,11 @@ Task 进入
 ### 2.2 核心原则
 
 1. **按专家视角分岛**：每个岛代表一种看问题的方式，岛内策略是同一视角下的不同变种
-2. **Question Parser 前置**：多路径之前解析题型，驱动策略选择和评估
-3. **每轮全岛进化**：一轮题（如 10 题）结束后，每个岛各自做 refine + diverge，不靠停滞检测
-4. **动态开岛**：某类题型所有岛都不擅长 → LLM 定义新视角 → spawn 新岛
-5. **方向和内容分离**：策略（方向）= 结构化 8 维定义；执行（内容）= MiroThinker 不变
+2. **Question Parser 前置**：多路径之前解析题型，驱动岛内策略采样、结果记录和进化方向
+3. **所有岛全参与**：每次任务所有岛各出 1 条路径，不做选岛，投票多样性最大化
+4. **每轮全岛进化**：一轮题（如 10 题）结束后，每个岛各自做 refine + diverge，不靠停滞检测
+5. **动态开岛**：某类题型所有岛都不擅长 → LLM 定义新视角 → spawn 新岛，路径数随之增加
+6. **方向和内容分离**：策略（方向）= 结构化 8 维定义；执行（内容）= MiroThinker 不变
 
 ---
 
@@ -113,9 +115,8 @@ async def execute_multi_path_pipeline(cfg, task_description, ...):
     # Step 0: 解析题目（代码直接调 LLM，1 次调用）
     parsed = await question_parser.parse(task_description)
     
-    # Step 1: 根据解析结果选岛和策略
-    selected_islands = island_pool.select_islands(parsed.question_type, n=3)
-    strategies = [island.sample(parsed.question_type) for island in selected_islands]
+    # Step 1: 所有岛各选一个策略（根据题型选岛内最优）
+    strategies = [island.sample(parsed.question_type) for island in island_pool.all_islands]
     
     # Step 2: 编译策略 → prompt_suffix
     # Step 3: 3 条路径并行跑
@@ -296,48 +297,29 @@ Island 0 → Island 1 → Island 2 → Island 3 → Island 4 → Island 0
 
 ## 六、策略选择
 
-### 6.1 每次任务选 3 个岛
+### 6.1 全部岛参与
 
-5 个岛只选 3 个出路径，选法：
+**每次任务，所有岛都出 1 条路径。** 不做选岛——5 个岛 = 5 条路径，全部并行跑，最后投票。
 
-```python
-def select_islands(question_type: str, n: int = 3) -> List[Island]:
-    """根据题型选最合适的 3 个岛"""
-    
-    # 1. 每个岛在该题型上的最优策略胜率
-    scores = []
-    for island in all_islands:
-        best_rate = island.get_best_rate_for_type(question_type)
-        scores.append((island, best_rate))
-    
-    # 2. 选 top 2 胜率最高的岛（exploit）
-    scores.sort(key=lambda x: -x[1])
-    selected = [scores[0][0], scores[1][0]]
-    
-    # 3. 第 3 个岛选"对抗验证"岛（如果没被选中的话），否则选剩余最高的
-    adversarial = get_island("对抗验证")
-    if adversarial not in selected:
-        selected.append(adversarial)
-    else:
-        selected.append(scores[2][0])
-    
-    return selected
-```
+这保证了每道题都有 5 个不同视角的答案，投票质量最高。动态开了新岛后，路径数随之增加（6 个岛 = 6 条路径）。
 
-**对抗验证岛有优先权**：几乎每道题都应该有一个"唱反调"的路径，这是 meta-evolve-plan 的核心洞察。
+Question Parser 的解析结果不用于选岛（因为全上），而用于：
+- **岛内策略采样**：每个岛选出该题型上胜率最高的策略
+- **结果记录**：按题型记录各策略的胜率
+- **进化方向**：分析哪类题型在哪个岛上表现差
 
 ### 6.2 岛内策略采样
 
-每个被选中的岛从自己的策略池里选 1 个策略：
+每个岛从自己的策略池里选 1 个策略：
 
 ```python
 def sample(self, question_type: str) -> StrategyDefinition:
-    """从岛内选一个策略"""
-    # 按该题型的胜率排名，选 top 的
-    # 如果该题型没有数据，退回全局胜率
+    """从岛内选该题型上最优的策略"""
     candidates = self.get_all_strategies()
     return max(candidates, key=lambda s: s.get_rate_for_type(question_type))
 ```
+
+如果某个岛在该题型上没有任何数据，退回全局胜率选择。
 
 ---
 
@@ -530,16 +512,13 @@ low = 1 票
 2. [Question Parser] (代码调 LLM 一次，可用小模型)
    │  → question_type, key_entities, time_window, resolution_criteria
    │
-3. [选岛] 根据 question_type + 各岛在该题型的胜率，选 3 个岛
-   │  → 对抗验证岛有优先权
+3. [所有岛各选策略] 每个岛根据 question_type 选出该题型上最优的策略
    │
-4. [岛内选策略] 每个岛选出该题型上胜率最高的策略
+4. [编译策略] 每个策略的 8 维 → prompt_suffix
    │
-5. [编译策略] 8 维 → prompt_suffix
+5. [N 条路径并行执行] MiroThinker × N（N = 岛数，初始 5 条）
    │
-6. [3 条路径并行执行] MiroThinker × 3
-   │
-7. [加权投票] confidence-based，分裂时 Judge 仲裁
+6. [加权投票] confidence-based，分裂时 Judge 仲裁
    │
 8. [记录结果] 每个策略按题型记录 win/lose/adopted
    │
@@ -591,7 +570,7 @@ low = 1 票
 | Phase 4: 控制器 + 元进化 | ✅ 每轮进化 + 动态开岛 |
 | "不在单题内做实时变异，按批次进化" | ✅ 每轮（10 题）进化一次 |
 | "before_date 感知" | 🔲 后续可在选岛时加权 |
-| "成本控制" | ✅ 5 岛选 3 个 × 1 路径 = 成本不变 |
+| "成本控制" | ⚠️ 5 岛全上 = 5 路径，成本约为现有 3 路径的 1.7 倍，动态开岛后会进一步增加 |
 | "概率聚合 → 加权投票" | ✅ 置信度加权投票 |
 
 ---
@@ -606,7 +585,7 @@ low = 1 票
 | 进化触发 | 停滞检测 | 每轮都进化 |
 | 题型感知 | 无（同一问题反复跑） | 有（Question Parser + 条件化评估） |
 | 距离度量 | 代码 token Jaccard | 维度差异数 / 7 |
-| 岛的并行性 | 串行（UCB 选 1 个） | 并行（选 3 个各出 1 路径） |
+| 岛的并行性 | 串行（UCB 选 1 个） | 并行（所有岛全出路径） |
 | 评估方式 | 同一评估函数反复跑 | 每道新题跑一次，按题型积累 |
 | 动态开岛条件 | 全局停滞 | 特定题型全岛表现差 |
 
@@ -650,8 +629,8 @@ low = 1 票
 | DD-101 | 按专家视角分岛 | 视角差异 = 真实的搜索行为差异，比 quality/diversity 分法更适合预测场景 |
 | DD-102 | 开局 5 个岛 | 对应 meta-evolve-plan 的 5 类专家，冷启动有合理起点 |
 | DD-103 | Question Parser 前置 | 驱动选岛、策略评估、进化方向，是整个条件化链路的基础 |
-| DD-104 | 每次选 3 个岛各出 1 路径 | 成本不变，投票有多样性 |
-| DD-105 | 对抗验证岛有优先权 | 几乎每道题都需要一个"唱反调"的路径来纠偏 |
+| DD-104 | 每次所有岛全部出路径 | 5 个视角全参与，投票多样性最大化 |
+| DD-105 | 动态开岛后路径数随之增加 | 新视角自动加入，不需要淘汰老岛 |
 | DD-106 | 每轮全岛进化，不靠停滞检测 | 数据量小（每轮 10 题），等停滞再进化太慢 |
 | DD-107 | 每岛每轮 1 refine + 1 diverge | 既优化已有的，又探索新的 |
 | DD-108 | 题型条件化评估 | 不同题型适用不同策略，全局胜率会掩盖真实表现 |
