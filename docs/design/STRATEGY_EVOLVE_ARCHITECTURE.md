@@ -504,7 +504,151 @@ low = 1 票
 
 ---
 
-## 十、每次任务的完整流程
+## 十、存储层：OpenViking 格式
+
+### 10.1 URI 结构
+
+所有岛、策略、战绩、进化日志统一按 OpenViking 的 `viking://` 文件系统范式存储：
+
+```
+viking://
+├── agent/
+│   ├── memories/
+│   │   ├── strategy_results/              ← 每次任务的策略战绩
+│   │   │   ├── task_001.json              ← {island, strategy, question_type, won, adopted}
+│   │   │   └── task_002.json
+│   │   ├── task_digests/                  ← 任务执行摘要（精炼版，替代原始 log）
+│   │   │   ├── task_001_island0.json      ← 该路径的搜索摘要 + 关键发现 + 结论
+│   │   │   └── task_001_island1.json
+│   │   └── learnings/                     ← 进化中提取的经验
+│   │       └── round_001.json
+│   │
+│   ├── skills/
+│   │   └── islands/                       ← 岛和策略定义
+│   │       ├── island_0_news/
+│   │       │   ├── _meta.json             ← 岛的 perspective、config
+│   │       │   ├── strategy_seed.json     ← 种子策略 8 维定义 + metrics
+│   │       │   ├── strategy_refine_r1.json
+│   │       │   └── strategy_diverge_r1.json
+│   │       ├── island_1_mechanism/
+│   │       │   └── ...
+│   │       └── island_N_spawned/          ← 动态生成的岛
+│   │
+│   └── instructions/
+│       └── question_parser/               ← Parser prompt 模板
+│
+└── resources/
+    └── evolution_history/                 ← 进化日志
+        ├── round_001.json                 ← 每轮的 refine/diverge 记录 + 迁移记录
+        └── spawn_log.json                 ← 动态开岛记录
+```
+
+### 10.2 分层加载
+
+利用 OpenViking 的 L0/L1/L2 分层机制控制 token 消耗：
+
+| 层级 | 内容 | token 量 | 使用场景 |
+|------|------|---------|---------|
+| **L0** | 策略名 + 全局胜率 + 题型 top3 胜率 | ~50 token/策略 | 策略采样（每次任务） |
+| **L1** | 完整 8 维定义 + 全部题型胜率 | ~300 token/策略 | 进化时（每轮） |
+| **L2** | 策略 + 关联的任务摘要 + 失败分析 | ~2000 token/策略 | 深度分析时（按需） |
+
+### 10.3 无 Server 降级
+
+OpenViking Server 未部署时，降级为本地 JSON 文件存储（现有 `openviking_context.py` 的 fallback 模式）：
+
+```
+evoagent/data/
+├── islands/
+│   ├── island_0_news/
+│   │   ├── _meta.json
+│   │   └── strategies.json
+│   └── ...
+├── results/
+│   └── task_results.jsonl
+├── digests/
+│   └── task_digests.jsonl
+└── evolution/
+    └── rounds.jsonl
+```
+
+URI 路径和目录结构一一对应，迁移到 OpenViking Server 时只需切换 backend，数据格式不变。
+
+---
+
+## 十一、任务摘要（Task Digest）：解决 Log 太长的问题
+
+### 11.1 问题
+
+现有的 reflector 读原始 `step_logs` 做反思，一道题的 log 可能几万 token。即使截断到 15 步 × 300 字符 = 4500 字符，仍然：
+- 包含大量无关信息（工具初始化、重复搜索、格式化输出）
+- 搜索结果原文占大头，但大部分对反思没用
+- 多路径 × 多轮 = 反思一次可能消耗 2-3 万 token
+
+### 11.2 方案：执行结束时立刻生成精炼摘要
+
+**在每条路径执行完毕后、反思之前**，代码层调一次 LLM（可用小模型）生成结构化摘要，存入 OpenViking 的 `task_digests/`。后续反思和进化只读摘要，不读原始 log。
+
+```python
+DIGEST_PROMPT = """
+总结以下 AI agent 的执行过程。只保留对反思有用的信息。
+
+## 执行 trace（原始）
+{raw_trace}
+
+输出 JSON:
+{
+    "searches_performed": [
+        {"query": "搜索词", "found_useful": true/false, "key_finding": "一句话"}
+    ],
+    "sources_cited": ["URL1", "URL2"],
+    "reasoning_chain": "用 2-3 句话概括推理过程",
+    "answer": "最终答案",
+    "confidence": "high/medium/low",
+    "potential_issues": ["可能的问题1", "可能的问题2"],
+    "token_cost": 12345
+}
+"""
+```
+
+### 11.3 摘要的三层结构
+
+每条路径的摘要也按 L0/L1/L2 分层：
+
+| 层级 | 内容 | token 量 | 用途 |
+|------|------|---------|------|
+| **L0** | 答案 + confidence + token_cost | ~20 token | 投票、快速统计 |
+| **L1** | + reasoning_chain + potential_issues | ~200 token | reflector 反思 |
+| **L2** | + searches_performed + sources_cited | ~500 token | 深度进化分析 |
+
+### 11.4 反思读摘要而不是原始 log
+
+```python
+# reflector.py 的改动
+
+# 之前：读原始 step_logs
+trace_summary = _extract_trace_summary(task_log)  # 4500+ chars
+
+# 之后：读 L1 摘要
+digest = openviking.load("viking://agent/memories/task_digests/task_001_island0.json", depth="L1")
+# ~200 token，包含 reasoning_chain + potential_issues
+```
+
+**token 消耗对比**：
+
+| | 之前（原始 log） | 之后（L1 摘要） | 节省 |
+|---|---|---|---|
+| 单路径反思 | ~4500 token | ~200 token | **95%** |
+| 5 路径比较反思 | ~22500 token | ~1000 token | **95%** |
+| 一轮（10 题）进化 | ~225000 token | ~10000 token | **95%** |
+
+### 11.5 原始 log 保留
+
+原始 `step_logs` 仍然写入 `logs/` 目录（用于调试和可视化），但反思和进化流程不再读它们。只在需要深度分析某个特定失败案例时，才按需加载原始 log（L2 级别）。
+
+---
+
+## 十二、每次任务的完整流程
 
 ```
 1. [Task 到达]
@@ -520,7 +664,11 @@ low = 1 票
    │
 6. [加权投票] confidence-based，分裂时 Judge 仲裁
    │
+7. [生成任务摘要] 每条路径执行完后，代码调 LLM 生成 digest（可用小模型）
+   │  → 存入 viking://agent/memories/task_digests/
+   │
 8. [记录结果] 每个策略按题型记录 win/lose/adopted
+   │  → 存入 viking://agent/memories/strategy_results/
    │
 9. [一轮结束后]
    │  a. 所有岛各自进化（1 refine + 1 diverge = 2 个新策略/岛）
@@ -530,9 +678,9 @@ low = 1 票
 
 ---
 
-## 十一、与现有代码的映射
+## 十三、与现有代码的映射
 
-### 11.1 新增文件
+### 13.1 新增文件
 
 | 文件 | 职责 |
 |------|------|
@@ -540,18 +688,20 @@ low = 1 票
 | `src/core/strategy_definition.py` | StrategyDefinition 数据结构 |
 | `src/core/strategy_compiler.py` | 8 维 → prompt_suffix 编译 |
 | `src/core/strategy_island.py` | 单岛：策略池 + 采样 + 淘汰 + elite_score |
-| `src/core/island_pool.py` | 多岛管理：选岛 + 迁移 + 动态开岛 |
+| `src/core/island_pool.py` | 多岛管理：迁移 + 动态开岛 |
+| `src/core/task_digest.py` | 任务执行摘要生成（L0/L1/L2 分层） |
 | `src/evolving/direction_generator.py` | LLM 生成 refine/diverge 方向 |
 
-### 11.2 修改文件
+### 13.2 修改文件
 
 | 文件 | 修改 |
 |------|------|
-| `src/core/multi_path.py` | `_select_strategies()` 改为从 IslandPool 采样；最前面加 QuestionParser |
-| `src/evolving/reflector.py` | 输出加维度级失败分析 |
+| `src/core/multi_path.py` | `_select_strategies()` 改为从 IslandPool 全部岛采样；最前面加 QuestionParser；执行完后生成 digest |
+| `src/core/openviking_context.py` | fallback 存储改为按岛/策略结构存储 |
+| `src/evolving/reflector.py` | 读 task_digest 而非原始 log；输出加维度级失败分析 |
 | `main_multipath.py` | 主循环加入每轮进化 + 动态开岛 |
 
-### 11.3 不修改
+### 13.3 不修改
 
 - `src/core/orchestrator.py`：单路径 ReAct 不变
 - `src/llm/`：LLM 调用层不变
@@ -560,13 +710,13 @@ low = 1 票
 
 ---
 
-## 十二、与 META_EVOLVE_REVIEW 的对齐
+## 十四、与 META_EVOLVE_REVIEW 的对齐
 
 | Review 建议 | 本方案 |
 |------------|--------|
 | Phase 1: 专家差异化 | ✅ 5 个专家视角岛 |
 | Phase 2: 结构化输出 + 加权投票 | ✅ confidence + 加权投票 |
-| Phase 3: 经验系统重构 | 🔲 不在本方案范围 |
+| Phase 3: 经验系统重构 | ✅ Task Digest + OpenViking 存储替代原始 log 读取 |
 | Phase 4: 控制器 + 元进化 | ✅ 每轮进化 + 动态开岛 |
 | "不在单题内做实时变异，按批次进化" | ✅ 每轮（10 题）进化一次 |
 | "before_date 感知" | 🔲 后续可在选岛时加权 |
@@ -575,7 +725,7 @@ low = 1 票
 
 ---
 
-## 十三、与 SkyDiscover 的关键区别
+## 十五、与 SkyDiscover 的关键区别
 
 | 维度 | SkyDiscover | EvoAgent v2 |
 |------|-------------|-------------|
@@ -591,28 +741,31 @@ low = 1 票
 
 ---
 
-## 十四、实施路径
+## 十六、实施路径
 
-### Step 1: Question Parser + 策略定义（1-2 天）
+### Step 1: Question Parser + 策略定义 + Task Digest（2-3 天）
 
 - 实现 `QuestionParser`
 - 实现 `StrategyDefinition` + `StrategyCompiler`
+- 实现 `TaskDigest`（执行完后生成精炼摘要）
 - 定义 5 个初始策略
-- **验证**：解析 cat10 的 10 道题，确认题型分类准确
+- **验证**：解析 cat10 的 10 道题，确认题型分类准确；确认 digest 能还原关键执行信息
 
-### Step 2: 策略岛 + 岛池（2-3 天）
+### Step 2: 策略岛 + 岛池 + OpenViking 存储（2-3 天）
 
 - 实现 `StrategyIsland`（单岛 Archive + 采样 + 淘汰）
-- 实现 `IslandPool`（选岛 + 迁移 + 动态开岛）
+- 实现 `IslandPool`（迁移 + 动态开岛）
+- 改 `openviking_context.py` 的 fallback 存储为岛/策略结构
 - 改 `multi_path.py` 的策略来源
-- **验证**：跑 cat10，3 条路径的答案一致率下降（多样性提升）
+- **验证**：跑 cat10，5 条路径的答案一致率低（多样性高）
 
 ### Step 3: 进化机制（2-3 天）
 
 - 实现 `DirectionGenerator`（refine + diverge）
+- 改 `reflector.py` 读 digest 而非原始 log
 - 主循环加入每轮进化
 - 实现动态开岛
-- **验证**：跑 2 轮 cat10，第 2 轮观察到新策略被生成和使用
+- **验证**：跑 2 轮 cat10，第 2 轮观察到新策略被生成和使用；反思 token 消耗下降 90%+
 
 ### Step 4: 加权投票 + 结构化输出（1 天）
 
@@ -622,7 +775,7 @@ low = 1 票
 
 ---
 
-## 十五、关键设计决策
+## 十七、关键设计决策
 
 | 编号 | 决策 | 理由 |
 |------|------|------|
@@ -638,3 +791,6 @@ low = 1 票
 | DD-110 | 策略用 8 维结构化定义 | 可独立进化、可计算距离、可组合 |
 | DD-111 | elite_score = 质量 + 新颖度 | 岛内多样性由数学保证 |
 | DD-112 | 进化生成的策略不受视角约束 | diverge 可以探索视角边界，迁移可以跨视角 |
+| DD-113 | OpenViking 格式统一存储 | 岛/策略/战绩/摘要统一 URI，支持 L0/L1/L2 分层加载，无 Server 时降级为本地 JSON |
+| DD-114 | Task Digest 替代原始 log | 执行完立刻生成精炼摘要，反思和进化只读摘要，token 节省 95% |
+| DD-115 | 原始 log 保留但不用于反思 | 原始 step_logs 仍写入 logs/ 用于调试，digest 用于进化链路 |
