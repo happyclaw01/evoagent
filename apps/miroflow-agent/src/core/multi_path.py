@@ -50,7 +50,7 @@ RETRYABLE_ERROR_PATTERNS = [
     "Service Unavailable", "503", "502", "504",
     "internal error", "InternalServerError", "quota",
 ]
-FALLBACK_STRATEGIES = ["breadth_first", "lateral_thinking"]
+FALLBACK_STRATEGIES = ["breadth_first", "lateral_thinking", "intel_analysis"]
 MAX_RETRIES = 2
 
 def _is_retryable_error(error: str) -> bool:
@@ -288,6 +288,48 @@ STRATEGY_VARIANTS = [
             "Cross-reference dates, numbers, and facts. "
             "If you find conflicting information, investigate further until you have high confidence. "
             "Always prefer verifiable facts over unverified claims."
+        ),
+    },
+    # Intelligence analysis strategy — inspired by multi-source intelligence (OSINT) methodology
+    {
+        "name": "intel_analysis",
+        "description": "Multi-source intelligence analysis strategy",
+        "max_turns": 250,
+        "prompt_suffix": (
+            "\n\n[Strategy: Intelligence Analysis (OSINT)]\n"
+            "Approach this like an intelligence analyst building a situation report.\n\n"
+            "1. SOURCE DIVERSIFICATION: Collect from at least 3 independent source categories "
+            "(e.g., official data, news agencies, domain-specific databases, social media, academic). "
+            "Never rely on a single source type.\n\n"
+            "2. CROSS-VALIDATION: The same claim must appear in ≥2 independent sources to be treated as confirmed. "
+            "One Western source + one regional/local source is ideal. Flag single-source claims explicitly.\n\n"
+            "3. QUANTITATIVE BASELINE: Find the normal/baseline numbers first (historical averages, "
+            "typical ranges), then compare current data against baselines. Report deviations as percentages.\n\n"
+            "4. ANOMALY DETECTION: Look for red flags — sudden changes, unusual patterns, "
+            "contradictions between sources, missing data where data should exist.\n\n"
+            "5. STRUCTURED OUTPUT: Organize findings as: Status Assessment (normal/elevated/critical), "
+            "Key Data Points (with sources), Conflicting Information (if any), Confidence Level.\n\n"
+            "6. SOURCE ATTRIBUTION: Every factual claim must cite its source and date. "
+            "Distinguish between confirmed facts, likely assessments, and speculation."
+        ),
+    },
+    # Contrarian/adversarial strategy — deliberately challenges the emerging consensus
+    {
+        "name": "devils_advocate",
+        "description": "Contrarian strategy that challenges consensus",
+        "max_turns": 150,
+        "prompt_suffix": (
+            "\n\n[Strategy: Devil's Advocate]\n"
+            "Your job is to CHALLENGE the obvious answer. Assume the most popular or intuitive "
+            "answer might be wrong.\n\n"
+            "1. After finding what seems like the answer, actively search for CONTRADICTING evidence.\n"
+            "2. Consider: What if the opposite is true? What evidence would support that?\n"
+            "3. Look for sources that disagree with the mainstream narrative.\n"
+            "4. Check for common biases: recency bias, confirmation bias, anchoring to first result.\n"
+            "5. If after thorough contrarian search you still arrive at the same answer, "
+            "your confidence should be HIGH. If you find legitimate counter-evidence, report both sides.\n\n"
+            "This strategy exists to prevent groupthink. Do NOT agree with the obvious answer "
+            "unless you've genuinely tried to disprove it."
         ),
     },
 ]
