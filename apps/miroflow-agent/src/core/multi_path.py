@@ -1383,162 +1383,36 @@ async def execute_multi_path_pipeline(
         except Exception as e:
             logger.warning(f"Strategy result recording failed: {e}")
 
-    # EE-501: Wire evolution_engine into multi_path.py
-    # After a round completes, trigger IslandEvolver.evolve_round() when question_parser enabled
-    if qp_cfg.get("enabled", False) and parsed_question is not None:
-        try:
-            pool = IslandPool()
-            # Build minimal round_stats from current results
-            round_stats: Dict[str, Any] = {
-                "round_number": 1,
-                "per_island": {},
-                "per_question_type": {},
-            }
-            qt = parsed_question.question_type
-            # Aggregate per-island stats
-            for island in pool.islands:
-                island_name = island.config.name
-                best_strat = island.sample(qt)
-                type_win_rates: Dict[str, float] = {}
-                for rec in island._records:
-                    for qtype, attempts in rec.attempts.items():
-                        wins = rec.wins.get(qtype, 0)
-                        type_win_rates[qtype] = wins / attempts if attempts > 0 else 0.0
-                round_stats["per_island"][island_name] = {
-                    "best_strategy": best_strat,
-                    "type_win_rates": type_win_rates,
-                    "failures": [],
-                }
-            # Per-question-type stats
-            total_attempts = sum(
-                1 for r in processed_results
-                if r is not None and isinstance(r[4], dict) and r[4].get("status") == "success"
-            )
-            correct_count = sum(
-                1 for r in processed_results
-                if r is not None and isinstance(r[4], dict) and r[4].get("status") == "success"
-                and r[1] and best_answer and r[1].strip().lower() == best_answer.strip().lower()
-            )
-            best_rate = correct_count / total_attempts if total_attempts > 0 else 0.0
-            round_stats["per_question_type"][qt] = {
-                "best_win_rate": best_rate,
-                "samples": total_attempts,
-            }
-
-            # EE LLM call: use OpenRouter + GPT-5 for evolution
-            ee_client = None
-            try:
-                from omegaconf import OmegaConf as _OC
-                ee_llm_cfg = _OC.create({
-                    "llm": {
-                        "provider": "openai",
-                        "model_name": "gpt-5",
-                        "api_key": cfg.get("evolution", {}).get("api_key", "") or cfg.get("llm", {}).get("api_key", ""),
-                        "base_url": cfg.get("evolution", {}).get("base_url", "") or "https://openrouter.ai/api/v1",
-                        "max_tokens": 2048,
-                    }
-                })
-                ee_client = ClientFactory(
-                    task_id=f"evolution-{uuid.uuid4()}", cfg=ee_llm_cfg, task_log=master_log
-                )
-
-                async def _ee_llm_call_async(prompt: str) -> str:
-                    response, _ = await ee_client.create_message(
-                        system_prompt="You are a strategy evolution engine. Return only valid JSON.",
-                        message_history=[{"role": "user", "content": prompt}],
-                        max_tokens=2048,
-                        agent_type="evolution",
-                    )
-                    from .multi_path import extract_llm_response_text
-                    return extract_llm_response_text(str(response)) or str(response)
-
-                # Wrap async call for sync DirectionGenerator
-                import asyncio as _aio
-                _ee_loop = _aio.get_event_loop()
-
-                def _ee_llm_call(prompt: str) -> str:
-                    future = _aio.ensure_future(_ee_llm_call_async(prompt))
-                    # We're already in an async context, use a thread to avoid deadlock
-                    import concurrent.futures
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                        result = executor.submit(
-                            lambda: _aio.new_event_loop().run_until_complete(_ee_llm_call_async(prompt))
-                        ).result(timeout=60)
-                    return result
-
-            except Exception as e:
-                logger.warning(f"Failed to create EE LLM client, evolution will skip refine/diverge: {e}")
-                def _ee_llm_call(prompt: str) -> str:
-                    return "{}"
-
-            direction_gen = DirectionGenerator(llm_call=_ee_llm_call)
-            evolver = IslandEvolver(direction_gen)
-
-            # Pass experience_store for richer refine context
-            evolving_cfg_ee = cfg.get("evolving", {})
-            ee_experience_store = None
-            if evolving_cfg_ee.get("enabled", False):
-                try:
-                    from ..evolving.experience_store import ExperienceStore as _EEExpStore
-                    ee_experience_store = _EEExpStore(
-                        evolving_cfg_ee.get("experience_file", ""),
-                        viking_storage=viking_storage,
-                        viking_context=viking_context,
-                    )
-                except Exception:
-                    pass
-
-            report = evolver.evolve_round(pool, round_stats, experience_store=ee_experience_store)
-
-            if ee_client:
-                ee_client.close()
-            master_log.log_step(
-                "info", "MultiPath | Evolution",
-                f"Evolution round: refined={len(report.refined_strategies)}, "
-                f"diverged={len(report.diverged_strategies)}, "
-                f"migrations={len(report.migrations)}",
-            )
-        except Exception as e:
-            logger.warning(f"Evolution engine trigger failed: {e}")
-
     master_log.log_step(
         "info",
         "MultiPath | Final",
         f"Selected answer: {best_answer[:200]}",
     )
 
-    # Self-Evolving: Multi-path reflection
-    # Reflect on each path individually + cross-path comparison
-    try:
-        evolving_cfg = cfg.get("evolving", {})
-        if evolving_cfg.get("enabled", False) and ground_truth:
-            from ..evolving.experience_store import ExperienceStore
-            from ..evolving.reflector import auto_reflect_multi_path
-
-            store = ExperienceStore(
-                evolving_cfg.get("experience_file", ""),
-                viking_storage=viking_storage,
-                viking_context=viking_context,
-            )
-            await auto_reflect_multi_path(
-                path_results=processed_results,
-                task_description=task_description,
-                ground_truth=str(ground_truth),
+    # Backward compat: when pipeline.auto_reflect is true, run reflection+evolution inline
+    pipeline_cfg = cfg.get("pipeline", {}) if cfg else {}
+    if pipeline_cfg.get("auto_reflect", False):
+        try:
+            ground_truths = {task_id: str(ground_truth)} if ground_truth else None
+            re_result = await reflect_and_evolve(
                 cfg=cfg,
-                experience_store=store,
+                log_dir=log_dir,
+                ground_truths=ground_truths,
+                task_ids=[task_id],
             )
             master_log.log_step(
                 "info",
-                "MultiPath | Reflection",
-                f"Multi-path reflection completed for {len(processed_results)} paths",
+                "MultiPath | Reflection+Evolution (auto_reflect)",
+                f"Reflected: {re_result.get('num_reflected', 0)}, "
+                f"Evolved: {re_result.get('num_evolved', 0)}",
             )
-    except Exception as e:
-        logger.warning(f"Multi-path reflection failed: {e}")
-        master_log.log_step(
-            "warning",
-            "MultiPath | Reflection Error",
-            str(e),
-        )
+        except Exception as e:
+            logger.warning(f"Auto reflect_and_evolve failed: {e}")
+            master_log.log_step(
+                "warning",
+                "MultiPath | Reflection+Evolution Error",
+                str(e),
+            )
 
     # EA-307: Trigger memory iteration and cleanup
     if viking_context:
@@ -1562,3 +1436,225 @@ async def execute_multi_path_pipeline(
     master_log_path = master_log.save()
 
     return best_summary, best_answer, master_log_path
+
+
+async def reflect_and_evolve(
+    cfg: DictConfig,
+    log_dir: str,
+    ground_truths: Optional[Dict[str, str]] = None,
+    task_ids: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """Run reflection and evolution as a separate step after prediction.
+
+    Can be called independently after one or more prediction rounds.
+
+    Args:
+        cfg: Full config (same as used for prediction)
+        log_dir: Directory containing task logs from prediction runs
+        ground_truths: Dict mapping task_id to ground truth answer
+        task_ids: Optional list of task_ids to reflect on (None = all in log_dir)
+
+    Returns:
+        Dict with reflection and evolution results summary
+    """
+    summary: Dict[str, Any] = {
+        "num_reflected": 0,
+        "num_evolved": 0,
+        "refined": 0,
+        "diverged": 0,
+        "migrations": 0,
+        "accuracy": {},
+        "errors": [],
+    }
+
+    # ── Step 1: Load task logs from log_dir ──────────────────────────────
+    log_path = Path(log_dir)
+    log_files = sorted(log_path.glob("*.json"))
+    if not log_files:
+        logger.info(f"reflect_and_evolve: no log files found in {log_dir}")
+        return summary
+
+    import json as _json
+
+    task_logs: Dict[str, Dict[str, Any]] = {}
+    for lf in log_files:
+        try:
+            data = _json.loads(lf.read_text())
+            tid = data.get("task_id", lf.stem)
+            # Strip _multipath / _pathN suffixes to get the base task_id
+            base_tid = tid.split("_multipath")[0].split("_path")[0]
+            if task_ids is not None and base_tid not in task_ids and tid not in task_ids:
+                continue
+            task_logs[tid] = data
+        except Exception:
+            continue
+
+    if not task_logs:
+        logger.info("reflect_and_evolve: no matching task logs after filtering")
+        return summary
+
+    # ── Step 2: Reflection ───────────────────────────────────────────────
+    evolving_cfg = cfg.get("evolving", {}) if cfg else {}
+    if evolving_cfg.get("enabled", False) and ground_truths:
+        try:
+            from ..evolving.experience_store import ExperienceStore
+            from ..evolving.reflector import auto_reflect_multi_path
+
+            store = ExperienceStore(evolving_cfg.get("experience_file", ""))
+
+            # Group logs by base task_id to reconstruct path_results
+            from collections import defaultdict
+            task_groups: Dict[str, List] = defaultdict(list)
+            for tid, data in task_logs.items():
+                base_tid = tid.split("_multipath")[0].split("_path")[0]
+                task_groups[base_tid].append(data)
+
+            for base_tid, logs in task_groups.items():
+                gt = ground_truths.get(base_tid)
+                if not gt:
+                    continue
+                # Build path_results tuples from log data
+                path_results = []
+                for log_data in logs:
+                    path_results.append((
+                        log_data.get("final_summary", ""),
+                        log_data.get("final_boxed_answer", ""),
+                        "",  # log_file_path
+                        log_data.get("strategy", log_data.get("task_id", "")),
+                        {"status": log_data.get("status", "unknown")},
+                    ))
+
+                if not path_results:
+                    continue
+
+                task_desc = ""
+                if logs and isinstance(logs[0].get("input"), dict):
+                    task_desc = logs[0]["input"].get("task_description", "")
+
+                await auto_reflect_multi_path(
+                    path_results=path_results,
+                    task_description=task_desc,
+                    ground_truth=gt,
+                    cfg=cfg,
+                    experience_store=store,
+                )
+                summary["num_reflected"] += 1
+
+                # Accuracy tracking
+                for pr in path_results:
+                    ans = (pr[1] or "").strip().lower()
+                    correct = ans == gt.strip().lower() if ans else False
+                    summary["accuracy"].setdefault(base_tid, []).append(correct)
+
+        except Exception as e:
+            logger.warning(f"reflect_and_evolve reflection failed: {e}")
+            summary["errors"].append(f"reflection: {e}")
+
+    # ── Step 3: Evolution (EE-501) ───────────────────────────────────────
+    qp_cfg = cfg.get("question_parser", {}) if cfg else {}
+    if qp_cfg.get("enabled", False):
+        try:
+            pool = IslandPool()
+
+            # Build round_stats from task logs
+            round_stats: Dict[str, Any] = {
+                "round_number": 1,
+                "per_island": {},
+                "per_question_type": {},
+            }
+            for island in pool.islands:
+                island_name = island.config.name
+                best_strat = island.sample(None)
+                type_win_rates: Dict[str, float] = {}
+                for rec in island._records:
+                    for qtype, attempts in rec.attempts.items():
+                        wins = rec.wins.get(qtype, 0)
+                        type_win_rates[qtype] = wins / attempts if attempts > 0 else 0.0
+                round_stats["per_island"][island_name] = {
+                    "best_strategy": best_strat,
+                    "type_win_rates": type_win_rates,
+                    "failures": [],
+                }
+
+            # EE LLM call: use OpenRouter + GPT-5 for evolution
+            ee_client = None
+            try:
+                from omegaconf import OmegaConf as _OC
+                ee_llm_cfg = _OC.create({
+                    "llm": {
+                        "provider": "openai",
+                        "model_name": "gpt-5",
+                        "api_key": cfg.get("evolution", {}).get("api_key", "") or cfg.get("llm", {}).get("api_key", ""),
+                        "base_url": cfg.get("evolution", {}).get("base_url", "") or "https://openrouter.ai/api/v1",
+                        "max_tokens": 2048,
+                    }
+                })
+                ee_client = ClientFactory(
+                    task_id=f"evolution-{uuid.uuid4()}", cfg=ee_llm_cfg, task_log=None
+                )
+
+                async def _ee_llm_call_async(prompt: str) -> str:
+                    response, _ = await ee_client.create_message(
+                        system_prompt="You are a strategy evolution engine. Return only valid JSON.",
+                        message_history=[{"role": "user", "content": prompt}],
+                        max_tokens=2048,
+                        agent_type="evolution",
+                    )
+                    from ..utils.parsing_utils import extract_llm_response_text
+                    return extract_llm_response_text(str(response)) or str(response)
+
+                import concurrent.futures
+
+                def _ee_llm_call(prompt: str) -> str:
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                        result = executor.submit(
+                            lambda: asyncio.new_event_loop().run_until_complete(
+                                _ee_llm_call_async(prompt)
+                            )
+                        ).result(timeout=60)
+                    return result
+
+            except Exception as e:
+                logger.warning(f"Failed to create EE LLM client: {e}")
+
+                def _ee_llm_call(prompt: str) -> str:
+                    return "{}"
+
+            direction_gen = DirectionGenerator(llm_call=_ee_llm_call)
+            evolver = IslandEvolver(direction_gen)
+
+            # Pass experience_store for richer refine context
+            ee_experience_store = None
+            if evolving_cfg.get("enabled", False):
+                try:
+                    from ..evolving.experience_store import ExperienceStore as _EEExpStore
+                    ee_experience_store = _EEExpStore(
+                        evolving_cfg.get("experience_file", ""),
+                    )
+                except Exception:
+                    pass
+
+            report = evolver.evolve_round(pool, round_stats, experience_store=ee_experience_store)
+
+            if ee_client:
+                ee_client.close()
+
+            summary["num_evolved"] = 1
+            summary["refined"] = len(report.refined_strategies)
+            summary["diverged"] = len(report.diverged_strategies)
+            summary["migrations"] = len(report.migrations)
+
+            logger.info(
+                f"reflect_and_evolve evolution: refined={summary['refined']}, "
+                f"diverged={summary['diverged']}, migrations={summary['migrations']}"
+            )
+
+        except Exception as e:
+            logger.warning(f"reflect_and_evolve evolution failed: {e}")
+            summary["errors"].append(f"evolution: {e}")
+
+    # ── Step 4: Save updated island pool (persisted via IslandPool) ──────
+    # IslandPool already persists on record_result; evolution report
+    # modifies islands in-place. No extra save needed here.
+
+    return summary
