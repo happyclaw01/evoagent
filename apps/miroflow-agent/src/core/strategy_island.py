@@ -609,10 +609,12 @@ class IslandStore:
 
     def __init__(self, primary: LocalJsonBackend,
                  fallback: Optional[Any] = None,
-                 viking_storage=None) -> None:
+                 viking_storage=None,
+                 viking_context=None) -> None:
         self.primary = primary
         self.fallback = fallback
         self._viking = viking_storage
+        self._viking_context = viking_context
 
     def save(self, pool: IslandPool) -> None:
         self.primary.save_pool(pool)
@@ -632,6 +634,19 @@ class IslandStore:
                 data = self.fallback.load_pool()
             except Exception:
                 pass
+        # Viking fallback: try loading from OpenViking if local/fallback empty
+        if data is None and self._viking_context is not None and self._viking is not None:
+            try:
+                import asyncio
+                remote_islands = self._viking.query_sync(
+                    self._viking_context.list_by_prefix("viking://agent/skills/islands/")
+                )
+                if remote_islands:
+                    islands_data = [hit["data"] for hit in remote_islands if "data" in hit]
+                    if islands_data:
+                        data = {"islands": islands_data}
+            except Exception as e:
+                logger.warning(f"Viking island load failed: {e}")
         if data is None:
             return None
         return IslandPool.from_dict(data)

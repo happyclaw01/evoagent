@@ -1460,6 +1460,7 @@ async def execute_multi_path_pipeline(
             store = ExperienceStore(
                 evolving_cfg.get("experience_file", ""),
                 viking_storage=viking_storage,
+                viking_context=viking_context,
             )
             await auto_reflect_multi_path(
                 path_results=processed_results,

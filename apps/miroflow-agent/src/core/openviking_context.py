@@ -437,6 +437,91 @@ class OpenVikingContext:
 
         logger.debug(f"Saved to URI {uri}")
 
+    # ==================== Read / Search Methods ====================
+
+    async def load_from_uri(self, uri: str) -> Optional[dict]:
+        """Load data from a viking:// URI.  Returns the stored dict or None.
+
+        In fallback mode: reads latest entry from _memory_store.
+        In real mode: HTTP GET to server (not yet implemented).
+        """
+        blocks = self._memory_store.get(uri)
+        if not blocks:
+            return None
+        # Return latest entry
+        try:
+            return json.loads(blocks[-1].content)
+        except (json.JSONDecodeError, IndexError):
+            return None
+
+    async def search_by_embedding(
+        self,
+        query_text: str,
+        uri_prefix: str,
+        max_results: int = 10,
+    ) -> List[dict]:
+        """Semantic search using embedding API.
+
+        Args:
+            query_text: Natural language query to embed and search
+            uri_prefix: Filter results to URIs starting with this prefix
+            max_results: Max results to return
+
+        Returns:
+            List of dicts with 'uri' and 'data' keys, sorted by relevance
+            (most relevant first).
+        """
+        if not self._connected:
+            return self._fallback_keyword_search(query_text, uri_prefix, max_results)
+
+        # Real mode: POST to server embedding endpoint (future)
+        # For now, fallback
+        return self._fallback_keyword_search(query_text, uri_prefix, max_results)
+
+    async def list_by_prefix(self, uri_prefix: str, limit: int = 100) -> List[dict]:
+        """List all entries under a URI prefix.
+
+        Returns list of dicts with 'uri' and 'data' keys.
+        """
+        results: List[dict] = []
+        for uri, blocks in self._memory_store.items():
+            if uri.startswith(uri_prefix) and blocks:
+                try:
+                    data = json.loads(blocks[-1].content)
+                    results.append({"uri": uri, "data": data})
+                except (json.JSONDecodeError, IndexError):
+                    continue
+            if len(results) >= limit:
+                break
+        return results
+
+    def _fallback_keyword_search(
+        self,
+        query_text: str,
+        uri_prefix: str,
+        max_results: int,
+    ) -> List[dict]:
+        """Simple keyword matching on _memory_store content (fallback mode)."""
+        keywords = [w.lower() for w in query_text.split() if len(w) > 2]
+        if not keywords:
+            return []
+
+        scored: List[tuple] = []
+        for uri, blocks in self._memory_store.items():
+            if not uri.startswith(uri_prefix) or not blocks:
+                continue
+            try:
+                content_str = blocks[-1].content.lower()
+                hits = sum(1 for kw in keywords if kw in content_str)
+                if hits > 0:
+                    data = json.loads(blocks[-1].content)
+                    scored.append((hits, uri, data))
+            except (json.JSONDecodeError, IndexError):
+                continue
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [{"uri": item[1], "data": item[2]} for item in scored[:max_results]]
+
     # ==================== Utility Methods ====================
     
     def get_statistics(self) -> Dict[str, Any]:

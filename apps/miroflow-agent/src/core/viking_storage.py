@@ -14,6 +14,7 @@ persistence to OpenViking without blocking the main execution path.
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import json
 import logging
 import queue
@@ -37,17 +38,20 @@ class VikingStorageSync:
     def __init__(self, viking_context: "OpenVikingContext") -> None:
         self._viking = viking_context
         self._queue: queue.Queue = queue.Queue()
+        self._query_queue: queue.Queue = queue.Queue()
         self._failed: list = []  # retry buffer
         self._thread = threading.Thread(target=self._worker, daemon=True)
         self._thread.start()
 
     def _worker(self) -> None:
-        """Background thread: processes write queue with its own event loop."""
+        """Background thread: processes write queue and query queue with its own event loop."""
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         while True:
+            # Process any pending query requests first (non-blocking)
+            self._process_queries(loop)
             try:
-                uri, data = self._queue.get(timeout=1.0)
+                uri, data = self._queue.get(timeout=0.1)
                 try:
                     loop.run_until_complete(self._async_put(uri, data))
                 except Exception as e:
@@ -77,6 +81,29 @@ class VikingStorageSync:
                 loop.run_until_complete(self._async_put(uri, data))
             except Exception:
                 self._failed.append((uri, data))
+
+    def query_sync(self, coro: Any) -> Any:
+        """Submit an async coroutine and block until result.  For read operations.
+
+        The coroutine is executed on the background worker's event loop.
+        Raises TimeoutError if no result within 5 seconds.
+        """
+        future: concurrent.futures.Future = concurrent.futures.Future()
+        self._query_queue.put((coro, future))
+        return future.result(timeout=5.0)
+
+    def _process_queries(self, loop: asyncio.AbstractEventLoop) -> None:
+        """Drain pending query requests (non-blocking)."""
+        while True:
+            try:
+                coro, future = self._query_queue.get_nowait()
+            except queue.Empty:
+                break
+            try:
+                result = loop.run_until_complete(coro)
+                future.set_result(result)
+            except Exception as e:
+                future.set_exception(e)
 
     @property
     def pending_count(self) -> int:

@@ -694,9 +694,10 @@ class DigestStore:
     IST-206: 对比视图加载
     """
 
-    def __init__(self, base_dir: str = "data/digests", viking_storage=None) -> None:
+    def __init__(self, base_dir: str = "data/digests", viking_storage=None, viking_context=None) -> None:
         self._base_dir = Path(base_dir)
         self._viking = viking_storage
+        self._viking_context = viking_context
 
     def _ensure_dir(self) -> None:
         self._base_dir.mkdir(parents=True, exist_ok=True)
@@ -759,10 +760,26 @@ class DigestStore:
             depth: "l0" | "l1" | "l2"
         """
         path = self._path_digest_file(task_id, path_index)
-        if not path.exists():
+        data = None
+        if path.exists():
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except Exception as e:
+                logger.warning(f"Failed to load digest {path}: {e}")
+
+        # Viking fallback when local file missing
+        if data is None and self._viking_context is not None:
+            try:
+                data = await self._viking_context.load_from_uri(
+                    f"viking://agent/memory/digests/{task_id}_path{path_index}"
+                )
+            except Exception as e:
+                logger.warning(f"Viking digest load failed: {e}")
+
+        if data is None:
             return None
+
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
             digest = PathDigest.from_dict(data)
             if depth == "l0":
                 return digest.to_l0()
@@ -771,7 +788,7 @@ class DigestStore:
             else:  # l2
                 return digest.to_l2()
         except Exception as e:
-            logger.warning(f"Failed to load digest {path}: {e}")
+            logger.warning(f"Failed to parse digest: {e}")
             return None
 
     # ── IST-206: load_task_comparison ────────────
@@ -779,12 +796,28 @@ class DigestStore:
     async def load_task_comparison(self, task_id: str) -> Optional[str]:
         """加载任务级对比视图。"""
         bundle_path = self._bundle_file(task_id)
-        if not bundle_path.exists():
+        data = None
+        if bundle_path.exists():
+            try:
+                data = json.loads(bundle_path.read_text(encoding="utf-8"))
+            except Exception as e:
+                logger.warning(f"Failed to load bundle {bundle_path}: {e}")
+
+        # Viking fallback
+        if data is None and self._viking_context is not None:
+            try:
+                data = await self._viking_context.load_from_uri(
+                    f"viking://agent/memory/digests/{task_id}_bundle"
+                )
+            except Exception as e:
+                logger.warning(f"Viking bundle load failed: {e}")
+
+        if data is None:
             return None
+
         try:
-            data = json.loads(bundle_path.read_text(encoding="utf-8"))
             bundle = TaskDigestBundle.from_dict(data)
             return bundle.get_comparison_view()
         except Exception as e:
-            logger.warning(f"Failed to load bundle {bundle_path}: {e}")
+            logger.warning(f"Failed to parse bundle: {e}")
             return None

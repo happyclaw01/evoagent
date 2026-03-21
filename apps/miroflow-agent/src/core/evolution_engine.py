@@ -566,11 +566,17 @@ class IslandEvolver:
                     if isinstance(rate, (int, float)) and rate < 0.5
                 ]
                 relevant_experiences = []
+                # Build semantic query describing weak areas
+                semantic_q = (
+                    f"failures in {', '.join(weak_types)} predictions"
+                    if weak_types else None
+                )
                 for qt in weak_types[:3]:
                     exps = experience_store.query(
                         question_type=qt,
                         was_correct=False,
                         max_count=3,
+                        semantic_query=semantic_q,
                     )
                     relevant_experiences.extend(exps)
                 # Also get recent failures regardless of type
