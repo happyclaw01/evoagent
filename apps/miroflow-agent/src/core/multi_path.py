@@ -31,6 +31,10 @@ from ..logging.task_logger import TaskLog, get_utc_plus_8_time
 
 # EA-304: Cost Tracker
 from .cost_tracker import CostTracker, format_cost_report
+from .question_parser import ParsedQuestion, QuestionParser
+from .strategy_compiler import compile_strategy
+from .seed_strategies import SEED_STRATEGIES
+from .strategy_definition import StrategyDefinition
 
 # EA-307: OpenViking Context
 from .openviking_context import OpenVikingContext, Discovery
@@ -297,13 +301,33 @@ def _select_strategies(
     cfg: DictConfig,
     task_description: str,
     num_paths: int,
+    parsed_question: Optional[ParsedQuestion] = None,
 ) -> List[Dict]:
     """Select strategies based on StrategyEvolver preferences (if available).
+
+    QP-302: Accepts optional ParsedQuestion for strategy selection.
+    QP-305: When question_parser is enabled, includes compiled seed strategies.
 
     If evolving is enabled and strategy_preferences.json has recommendations
     for the detected question type, prioritize recommended strategies.
     Falls back to default STRATEGY_VARIANTS[:num_paths].
     """
+    # QP-307: Check feature flag for question parser
+    qp_cfg = cfg.get("question_parser", {}) if cfg else {}
+    qp_enabled = qp_cfg.get("enabled", False)
+
+    # QP-305: When QP is enabled, use seed strategies compiled via StrategyCompiler
+    if qp_enabled and parsed_question is not None:
+        compiled_seeds = [compile_strategy(s) for s in SEED_STRATEGIES]
+        # QP-302: Use parsed_question for strategy selection (future: rank by type win rate)
+        # For now, select first num_paths compiled seed strategies
+        selected = compiled_seeds[:num_paths]
+        logger.info(
+            f"QP strategy selection: type={parsed_question.question_type}, "
+            f"selected={[s['name'] for s in selected]}"
+        )
+        return selected
+
     default = STRATEGY_VARIANTS[:num_paths]
 
     evolving_cfg = cfg.get("evolving", {})
@@ -777,8 +801,31 @@ async def execute_multi_path_pipeline(
     Returns:
         Tuple of (final_summary, final_boxed_answer, log_file_path)
     """
+    # QP-301 / QP-307: Parse question if feature flag is enabled
+    parsed_question: Optional[ParsedQuestion] = None
+    qp_cfg = cfg.get("question_parser", {}) if cfg else {}
+    if qp_cfg.get("enabled", False):
+        try:
+            parser_model = qp_cfg.get("model", "")
+            parser_timeout = qp_cfg.get("timeout", 30.0)
+            llm_client = ClientFactory.create(cfg)
+            parser = QuestionParser(
+                llm_client=llm_client,
+                model=parser_model,
+                timeout=parser_timeout,
+            )
+            parsed_question = await parser.parse(task_description)
+            logger.info(
+                f"QuestionParser result: type={parsed_question.question_type}, "
+                f"entities={parsed_question.key_entities}, "
+                f"difficulty={parsed_question.difficulty_hint}"
+            )
+        except Exception as e:
+            logger.warning(f"QuestionParser failed, continuing without: {e}")
+            parsed_question = ParsedQuestion.default()
+
     if strategies is None:
-        strategies = _select_strategies(cfg, task_description, num_paths)
+        strategies = _select_strategies(cfg, task_description, num_paths, parsed_question)
 
     # EA-307: Initialize OpenViking context for cross-path sharing
     viking_context = None
@@ -807,6 +854,15 @@ async def execute_multi_path_pipeline(
         env_info=get_env_info(cfg),
         ground_truth=ground_truth,
     )
+
+    # QP-306: Attach ParsedQuestion to master log for downstream recording
+    if parsed_question is not None:
+        master_log.log_step(
+            "info",
+            "MultiPath | ParsedQuestion",
+            f"type={parsed_question.question_type}, entities={parsed_question.key_entities}, "
+            f"difficulty={parsed_question.difficulty_hint}, time_window={parsed_question.time_window}",
+        )
 
     master_log.log_step(
         "info",

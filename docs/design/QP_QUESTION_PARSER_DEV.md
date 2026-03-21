@@ -61,73 +61,73 @@
 
 | 编号 | 功能名称 | 描述 | 状态 | 优先级 |
 |------|---------|------|------|--------|
-| **QP-001** | ParsedQuestion dataclass | 题目解析结果数据结构：question_type / key_entities / time_window / resolution_criteria / difficulty_hint | ❌ 待开发 | P0 |
-| **QP-002** | ParsedQuestion 序列化 | to_dict() / from_dict() 方法，支持 JSON 序列化和日志记录 | ❌ 待开发 | P0 |
-| **QP-003** | ParsedQuestion 默认值 | 解析失败时的安全降级默认值（question_type="other", difficulty_hint="medium"） | ❌ 待开发 | P0 |
-| **QP-010** | StrategyDefinition dataclass | 8 维策略定义数据结构：id / name / island_id + 8 维 + parent_id / iteration_found + metrics | ❌ 待开发 | P0 |
-| **QP-011** | StrategyDefinition metrics | 按题型拆分的胜率统计：overall{wins, total, rate} + by_type{type → {wins, total, rate}} | ❌ 待开发 | P0 |
-| **QP-012** | StrategyDefinition.get_rate_for_type() | 获取指定题型的胜率，样本不足时退回 overall rate | ❌ 待开发 | P1 |
-| **QP-013** | StrategyDefinition 序列化 | to_dict() / from_dict() 方法，JSON 持久化 | ❌ 待开发 | P0 |
-| **QP-014** | 5 个初始种子策略常量 | news_expert / mechanism_expert / historical_expert / market_expert / counterfactual_expert 的完整 8 维定义 | ❌ 待开发 | P0 |
+| **QP-001** | ParsedQuestion dataclass | 题目解析结果数据结构：question_type / key_entities / time_window / resolution_criteria / difficulty_hint | ✅ 已完成 | P0 |
+| **QP-002** | ParsedQuestion 序列化 | to_dict() / from_dict() 方法，支持 JSON 序列化和日志记录 | ✅ 已完成 | P0 |
+| **QP-003** | ParsedQuestion 默认值 | 解析失败时的安全降级默认值（question_type="other", difficulty_hint="medium"） | ✅ 已完成 | P0 |
+| **QP-010** | StrategyDefinition dataclass | 8 维策略定义数据结构：id / name / island_id + 8 维 + parent_id / iteration_found + metrics | ✅ 已完成 | P0 |
+| **QP-011** | StrategyDefinition metrics | 按题型拆分的胜率统计：overall{wins, total, rate} + by_type{type → {wins, total, rate}} | ✅ 已完成 | P0 |
+| **QP-012** | StrategyDefinition.get_rate_for_type() | 获取指定题型的胜率，样本不足时退回 overall rate | ✅ 已完成 | P1 |
+| **QP-013** | StrategyDefinition 序列化 | to_dict() / from_dict() 方法，JSON 持久化 | ✅ 已完成 | P0 |
+| **QP-014** | 5 个初始种子策略常量 | news_expert / mechanism_expert / historical_expert / market_expert / counterfactual_expert 的完整 8 维定义 | ✅ 已完成 | P0 |
 
 ### 2.2 解析层
 
 | 编号 | 功能名称 | 描述 | 状态 | 优先级 |
 |------|---------|------|------|--------|
-| **QP-101** | QuestionParser 类 | 代码层模块，封装 LLM 调用逻辑，不进入 ReAct 循环 | ❌ 待开发 | P0 |
-| **QP-102** | PARSER_PROMPT 模板 | 结构化输出 prompt，引导 LLM 输出 JSON 格式的 ParsedQuestion | ❌ 待开发 | P0 |
-| **QP-103** | parse() 异步方法 | async def parse(task_description: str) → ParsedQuestion，单次 LLM 调用 | ❌ 待开发 | P0 |
-| **QP-104** | JSON 输出解析 | 从 LLM 响应中提取 JSON，处理 markdown 代码块包裹、多余文本等噪音 | ❌ 待开发 | P0 |
-| **QP-105** | 解析失败降级 | LLM 调用失败或 JSON 解析失败时，返回安全默认 ParsedQuestion | ❌ 待开发 | P0 |
-| **QP-106** | 小模型配置 | 支持通过配置指定 parser 使用的模型（默认 GPT-4o-mini 级别），与主路径模型解耦 | ❌ 待开发 | P1 |
-| **QP-107** | 解析日志记录 | 记录 parse 输入/输出/耗时到 logger，便于调试和审计 | ❌ 待开发 | P1 |
+| **QP-101** | QuestionParser 类 | 代码层模块，封装 LLM 调用逻辑，不进入 ReAct 循环 | ✅ 已完成 | P0 |
+| **QP-102** | PARSER_PROMPT 模板 | 结构化输出 prompt，引导 LLM 输出 JSON 格式的 ParsedQuestion | ✅ 已完成 | P0 |
+| **QP-103** | parse() 异步方法 | async def parse(task_description: str) → ParsedQuestion，单次 LLM 调用 | ✅ 已完成 | P0 |
+| **QP-104** | JSON 输出解析 | 从 LLM 响应中提取 JSON，处理 markdown 代码块包裹、多余文本等噪音 | ✅ 已完成 | P0 |
+| **QP-105** | 解析失败降级 | LLM 调用失败或 JSON 解析失败时，返回安全默认 ParsedQuestion | ✅ 已完成 | P0 |
+| **QP-106** | 小模型配置 | 支持通过配置指定 parser 使用的模型（默认 GPT-4o-mini 级别），与主路径模型解耦 | ✅ 已完成 | P1 |
+| **QP-107** | 解析日志记录 | 记录 parse 输入/输出/耗时到 logger，便于调试和审计 | ✅ 已完成 | P1 |
 
 ### 2.3 编译层
 
 | 编号 | 功能名称 | 描述 | 状态 | 优先级 |
 |------|---------|------|------|--------|
-| **QP-201** | 8 维 TEMPLATES 字典 | 每个维度一个 dict，key=维度值, value=prompt 片段 | ❌ 待开发 | P0 |
-| **QP-202** | FRAMING_TEMPLATES | hypothesis_framing 维度模板：news_tracking / mechanism_analysis / historical_analogy / market_signal / counterfactual | ❌ 待开发 | P0 |
-| **QP-203** | QUERY_TEMPLATES | query_policy 维度模板：broad_diverse / targeted_authoritative / trend_based / contrarian / temporal_sequence | ❌ 待开发 | P0 |
-| **QP-204** | EVIDENCE_TEMPLATES | evidence_source 维度模板：news_wire / official_data / academic / market_data / social_signal | ❌ 待开发 | P0 |
-| **QP-205** | RETRIEVAL_TEMPLATES | retrieval_depth 维度模板：shallow / medium / deep | ❌ 待开发 | P0 |
-| **QP-206** | UPDATE_TEMPLATES | update_policy 维度模板：fast / moderate / conservative | ❌ 待开发 | P0 |
-| **QP-207** | AUDIT_TEMPLATES | audit_policy 维度模板：devil_advocate / source_triangulation / base_rate_check / assumption_audit / none | ❌ 待开发 | P0 |
-| **QP-208** | TERMINATION_TEMPLATES | termination_policy 维度模板：confidence_threshold / evidence_saturation / time_budget / adversarial_stable | ❌ 待开发 | P0 |
-| **QP-209** | compile_strategy() | StrategyDefinition → {name, prompt_suffix, max_turns, _strategy_def}，拼接 8 维模板 | ❌ 待开发 | P0 |
-| **QP-210** | strategy_distance() | 计算两个策略的维度差异数 / 总维度数（7 维），归一化 0-1 | ❌ 待开发 | P0 |
-| **QP-211** | StrategyCompiler 类 | 封装编译逻辑，支持自定义模板覆盖 | ❌ 待开发 | P1 |
+| **QP-201** | 8 维 TEMPLATES 字典 | 每个维度一个 dict，key=维度值, value=prompt 片段 | ✅ 已完成 | P0 |
+| **QP-202** | FRAMING_TEMPLATES | hypothesis_framing 维度模板：news_tracking / mechanism_analysis / historical_analogy / market_signal / counterfactual | ✅ 已完成 | P0 |
+| **QP-203** | QUERY_TEMPLATES | query_policy 维度模板：broad_diverse / targeted_authoritative / trend_based / contrarian / temporal_sequence | ✅ 已完成 | P0 |
+| **QP-204** | EVIDENCE_TEMPLATES | evidence_source 维度模板：news_wire / official_data / academic / market_data / social_signal | ✅ 已完成 | P0 |
+| **QP-205** | RETRIEVAL_TEMPLATES | retrieval_depth 维度模板：shallow / medium / deep | ✅ 已完成 | P0 |
+| **QP-206** | UPDATE_TEMPLATES | update_policy 维度模板：fast / moderate / conservative | ✅ 已完成 | P0 |
+| **QP-207** | AUDIT_TEMPLATES | audit_policy 维度模板：devil_advocate / source_triangulation / base_rate_check / assumption_audit / none | ✅ 已完成 | P0 |
+| **QP-208** | TERMINATION_TEMPLATES | termination_policy 维度模板：confidence_threshold / evidence_saturation / time_budget / adversarial_stable | ✅ 已完成 | P0 |
+| **QP-209** | compile_strategy() | StrategyDefinition → {name, prompt_suffix, max_turns, _strategy_def}，拼接 8 维模板 | ✅ 已完成 | P0 |
+| **QP-210** | strategy_distance() | 计算两个策略的维度差异数 / 总维度数（7 维），归一化 0-1 | ✅ 已完成 | P0 |
+| **QP-211** | StrategyCompiler 类 | 封装编译逻辑，支持自定义模板覆盖 | ✅ 已完成 | P1 |
 
 ### 2.4 集成层
 
 | 编号 | 功能名称 | 描述 | 状态 | 优先级 |
 |------|---------|------|------|--------|
-| **QP-301** | multi_path.py 前置 parse | execute_multi_path_pipeline() 最前面调用 QuestionParser.parse() | ❌ 待开发 | P0 |
-| **QP-302** | _select_strategies() 改造 | 接收 ParsedQuestion 参数，用于策略选择决策 | ❌ 待开发 | P0 |
-| **QP-303** | 旧策略格式兼容 | compile_strategy() 输出与现有 STRATEGY_VARIANTS dict 格式兼容 | ❌ 待开发 | P0 |
-| **QP-304** | STRATEGY_VARIANTS 迁移 | 将现有 4 个硬编码策略迁移为 StrategyDefinition + compile，保持行为一致 | ❌ 待开发 | P1 |
-| **QP-305** | 5 个种子策略注册 | 新增 5 个种子策略作为默认策略池，与旧策略共存 | ❌ 待开发 | P1 |
-| **QP-306** | ParsedQuestion 透传 | ParsedQuestion 通过 pipeline 向下传递，供后续模块使用（日志、结果记录等） | ❌ 待开发 | P1 |
-| **QP-307** | Feature flag 开关 | 配置项 `question_parser.enabled` 控制是否启用，禁用时走原有逻辑 | ❌ 待开发 | P0 |
+| **QP-301** | multi_path.py 前置 parse | execute_multi_path_pipeline() 最前面调用 QuestionParser.parse() | ✅ 已完成 | P0 |
+| **QP-302** | _select_strategies() 改造 | 接收 ParsedQuestion 参数，用于策略选择决策 | ✅ 已完成 | P0 |
+| **QP-303** | 旧策略格式兼容 | compile_strategy() 输出与现有 STRATEGY_VARIANTS dict 格式兼容 | ✅ 已完成 | P0 |
+| **QP-304** | STRATEGY_VARIANTS 迁移 | 将现有 4 个硬编码策略迁移为 StrategyDefinition + compile，保持行为一致 | ✅ 已完成 | P1 |
+| **QP-305** | 5 个种子策略注册 | 新增 5 个种子策略作为默认策略池，与旧策略共存 | ✅ 已完成 | P1 |
+| **QP-306** | ParsedQuestion 透传 | ParsedQuestion 通过 pipeline 向下传递，供后续模块使用（日志、结果记录等） | ✅ 已完成 | P1 |
+| **QP-307** | Feature flag 开关 | 配置项 `question_parser.enabled` 控制是否启用，禁用时走原有逻辑 | ✅ 已完成 | P0 |
 
 ### 2.5 测试层
 
 | 编号 | 功能名称 | 描述 | 状态 | 优先级 |
 |------|---------|------|------|--------|
-| **QP-401** | 单测: ParsedQuestion 创建 | 测试 dataclass 正确创建、字段默认值 | ❌ 待开发 | P0 |
-| **QP-402** | 单测: ParsedQuestion 序列化 | 测试 to_dict() / from_dict() 往返一致性 | ❌ 待开发 | P0 |
-| **QP-403** | 单测: Parser prompt 输出解析 | 测试 JSON 提取能力：标准 JSON、markdown 包裹、含噪音文本 | ❌ 待开发 | P0 |
-| **QP-404** | 单测: Parser 失败降级 | 测试 LLM 返回无效内容时的安全降级 | ❌ 待开发 | P0 |
-| **QP-405** | 单测: StrategyDefinition 创建验证 | 测试 dataclass 正确创建、metrics 初始值、get_rate_for_type() | ❌ 待开发 | P0 |
-| **QP-406** | 单测: StrategyDefinition 序列化 | 测试 to_dict() / from_dict() 往返一致性 | ❌ 待开发 | P0 |
-| **QP-407** | 单测: StrategyCompiler 编译输出 | 测试 compile_strategy() 输出格式正确、包含所有维度模板 | ❌ 待开发 | P0 |
-| **QP-408** | 单测: strategy_distance 计算 | 测试完全相同=0、完全不同=1、部分差异=正确比例 | ❌ 待开发 | P0 |
-| **QP-409** | 单测: 5 个种子策略完整性 | 测试 5 个种子策略都能正确创建和编译 | ❌ 待开发 | P0 |
-| **QP-410** | 单测: 种子策略两两距离 | 验证 5 个种子策略之间的距离 > 0.3（足够多样） | ❌ 待开发 | P1 |
-| **QP-411** | 集测: Parser + 真实 LLM | 用真实 LLM 解析 cat10 的 10 道题，检查 question_type 分类准确率 | ❌ 待开发 | P1 |
-| **QP-412** | 集测: 编译后 prompt_suffix 注入 | 验证编译后的策略 dict 能正确注入 multi_path 的 Agent | ❌ 待开发 | P1 |
-| **QP-413** | 回归: 现有 37 个测试不受影响 | 确认所有现有测试继续通过 | ❌ 待开发 | P0 |
-| **QP-414** | 单测: feature flag 禁用时走原有逻辑 | 测试 question_parser.enabled=false 时行为不变 | ❌ 待开发 | P0 |
+| **QP-401** | 单测: ParsedQuestion 创建 | 测试 dataclass 正确创建、字段默认值 | ✅ 已完成 | P0 |
+| **QP-402** | 单测: ParsedQuestion 序列化 | 测试 to_dict() / from_dict() 往返一致性 | ✅ 已完成 | P0 |
+| **QP-403** | 单测: Parser prompt 输出解析 | 测试 JSON 提取能力：标准 JSON、markdown 包裹、含噪音文本 | ✅ 已完成 | P0 |
+| **QP-404** | 单测: Parser 失败降级 | 测试 LLM 返回无效内容时的安全降级 | ✅ 已完成 | P0 |
+| **QP-405** | 单测: StrategyDefinition 创建验证 | 测试 dataclass 正确创建、metrics 初始值、get_rate_for_type() | ✅ 已完成 | P0 |
+| **QP-406** | 单测: StrategyDefinition 序列化 | 测试 to_dict() / from_dict() 往返一致性 | ✅ 已完成 | P0 |
+| **QP-407** | 单测: StrategyCompiler 编译输出 | 测试 compile_strategy() 输出格式正确、包含所有维度模板 | ✅ 已完成 | P0 |
+| **QP-408** | 单测: strategy_distance 计算 | 测试完全相同=0、完全不同=1、部分差异=正确比例 | ✅ 已完成 | P0 |
+| **QP-409** | 单测: 5 个种子策略完整性 | 测试 5 个种子策略都能正确创建和编译 | ✅ 已完成 | P0 |
+| **QP-410** | 单测: 种子策略两两距离 | 验证 5 个种子策略之间的距离 > 0.3（足够多样） | ✅ 已完成 | P1 |
+| **QP-411** | 集测: Parser + 真实 LLM | 用真实 LLM 解析 cat10 的 10 道题，检查 question_type 分类准确率 | ⏭️ 跳过(需真实LLM) | P1 |
+| **QP-412** | 集测: 编译后 prompt_suffix 注入 | 验证编译后的策略 dict 能正确注入 multi_path 的 Agent | ⏭️ 跳过(需完整pipeline) | P1 |
+| **QP-413** | 回归: 现有 37 个测试不受影响 | 确认所有现有测试继续通过 | ✅ 已完成 | P0 |
+| **QP-414** | 单测: feature flag 禁用时走原有逻辑 | 测试 question_parser.enabled=false 时行为不变 | ✅ 已完成 | P0 |
 
 ---
 

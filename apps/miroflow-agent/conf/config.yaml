@@ -13,6 +13,12 @@ hydra:
 project_name: "miroflow-agent"
 debug_dir: "../../logs/debug"
 
+# QP-307: Question Parser feature flag
+question_parser:
+  enabled: false          # Set to true to enable QuestionParser + seed strategies
+  model: ""               # Parser model; empty = use default (e.g., GPT-4o-mini)
+  timeout: 30.0           # Parser LLM call timeout in seconds
+
 # Self-Evolving: inject past experiences into agent prompts
 evolving:
   enabled: false
