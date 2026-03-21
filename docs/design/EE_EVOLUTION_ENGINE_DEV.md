@@ -75,82 +75,82 @@
 
 ### 2.1 进化触发层
 
-| 编号 | 功能 | 描述 | 优先级 |
-|------|------|------|--------|
-| **EE-001** | 轮次管理器 (RoundManager) | 跟踪当前轮次编号，每轮结束时触发进化流程。维护 `current_round: int`，提供 `advance_round()` 方法 | **P0** |
-| **EE-002** | 轮次定义 | 一轮 = 一批评测题（默认 batch_size=10）。轮次边界由 `main_multipath.py` 在处理完一批题后确定 | **P0** |
-| **EE-003** | 进化调度器 (EvolutionScheduler) | 协调所有岛的进化操作：遍历 `island_pool.islands`，依次调用 refine → diverge → migrate → check_spawn | **P0** |
+| 编号 | 功能 | 描述 | 优先级 | 状态 |
+|------|------|------|--------|------|
+| **EE-001** | 轮次管理器 (RoundManager) | 跟踪当前轮次编号，每轮结束时触发进化流程。维护 `current_round: int`，提供 `advance_round()` 方法 | **P0** | ✅ |
+| **EE-002** | 轮次定义 | 一轮 = 一批评测题（默认 batch_size=10）。轮次边界由 `main_multipath.py` 在处理完一批题后确定 | **P0** | ✅ |
+| **EE-003** | 进化调度器 (EvolutionScheduler) | 协调所有岛的进化操作：遍历 `island_pool.islands`，依次调用 refine → diverge → migrate → check_spawn | **P0** | ✅ |
 
 ### 2.2 Refine 层
 
-| 编号 | 功能 | 描述 | 优先级 |
-|------|------|------|--------|
-| **EE-101** | RefineGenerator | 取岛内 `elite_score` 最高的策略，通过 LLM 微调其中 1-2 个维度，生成改良版策略 | **P0** |
-| **EE-102** | Refine Prompt 模板 | **输入：** best策略的8维参数 + 该岛在各题型上的胜率 + 最近失败案例（≤3条）<br>**输出：** 修改后的完整8维参数（JSON格式） | **P0** |
-| **EE-103** | Refine 输出解析 | 解析 LLM 返回的 JSON，校验字段完整性，转换为 `StrategyDefinition` 对象 | **P0** |
-| **EE-104** | Refine 变异幅度控制 | 对比原策略与新策略的8维，确保最多只有2个维度发生变化。超出则截断至变化最大的2维 | **P1** |
+| 编号 | 功能 | 描述 | 优先级 | 状态 |
+|------|------|------|--------|------|
+| **EE-101** | RefineGenerator | 取岛内 `elite_score` 最高的策略，通过 LLM 微调其中 1-2 个维度，生成改良版策略 | **P0** | ✅ |
+| **EE-102** | Refine Prompt 模板 | **输入：** best策略的8维参数 + 该岛在各题型上的胜率 + 最近失败案例（≤3条）<br>**输出：** 修改后的完整8维参数（JSON格式） | **P0** | ✅ |
+| **EE-103** | Refine 输出解析 | 解析 LLM 返回的 JSON，校验字段完整性，转换为 `StrategyDefinition` 对象 | **P0** | ✅ |
+| **EE-104** | Refine 变异幅度控制 | 对比原策略与新策略的8维，确保最多只有2个维度发生变化。超出则截断至变化最大的2维 | **P1** | ✅ |
 
 ### 2.3 Diverge 层
 
-| 编号 | 功能 | 描述 | 优先级 |
-|------|------|------|--------|
-| **EE-201** | DivergeGenerator | 在岛的 `perspective` 视角约束下，生成与现有策略截然不同的全新变种 | **P0** |
-| **EE-202** | Diverge Prompt 模板 | **输入：** `island.perspective` + 岛内所有现有策略摘要<br>**输出：** 全新8维策略，要求至少3个维度与岛内任意现有策略不同 | **P0** |
-| **EE-203** | Diverge 输出解析 | 解析 LLM 返回的 JSON，校验字段完整性，转换为 `StrategyDefinition` 对象 | **P0** |
-| **EE-204** | Diverge 多样性验证 | 对比新策略与岛内所有现有策略，确认至少有 ≥3 个维度不同。不满足则拒绝并重试（最多2次） | **P1** |
+| 编号 | 功能 | 描述 | 优先级 | 状态 |
+|------|------|------|--------|------|
+| **EE-201** | DivergeGenerator | 在岛的 `perspective` 视角约束下，生成与现有策略截然不同的全新变种 | **P0** | ✅ |
+| **EE-202** | Diverge Prompt 模板 | **输入：** `island.perspective` + 岛内所有现有策略摘要<br>**输出：** 全新8维策略，要求至少3个维度与岛内任意现有策略不同 | **P0** | ✅ |
+| **EE-203** | Diverge 输出解析 | 解析 LLM 返回的 JSON，校验字段完整性，转换为 `StrategyDefinition` 对象 | **P0** | ✅ |
+| **EE-204** | Diverge 多样性验证 | 对比新策略与岛内所有现有策略，确认至少有 ≥3 个维度不同。不满足则拒绝并重试（最多2次） | **P1** | ✅ |
 
 ### 2.4 迁移层
 
-| 编号 | 功能 | 描述 | 优先级 |
-|------|------|------|--------|
-| **EE-301** | 环形迁移执行器 | 按固定拓扑 `0→1→2→3→4→0` 执行策略迁移。岛 i 的 top1 策略复制到岛 `(i+1) % N` | **P1** |
-| **EE-302** | 迁移候选选择 | 每个岛选择 `elite_score` 最高的1个策略作为迁移候选 | **P1** |
-| **EE-303** | 迁移筛选 | 候选策略需同时满足：(1) `elite_score ≥ 阈值`（默认0.5）；(2) 与目标岛所有策略的最小距离 ≥ 0.3。不满足则跳过该迁移 | **P1** |
+| 编号 | 功能 | 描述 | 优先级 | 状态 |
+|------|------|------|--------|------|
+| **EE-301** | 环形迁移执行器 | 按固定拓扑 `0→1→2→3→4→0` 执行策略迁移。岛 i 的 top1 策略复制到岛 `(i+1) % N` | **P1** | ✅ |
+| **EE-302** | 迁移候选选择 | 每个岛选择 `elite_score` 最高的1个策略作为迁移候选 | **P1** | ✅ |
+| **EE-303** | 迁移筛选 | 候选策略需同时满足：(1) `elite_score ≥ 阈值`（默认0.5）；(2) 与目标岛所有策略的最小距离 ≥ 0.3。不满足则跳过该迁移 | **P1** | ✅ |
 
 ### 2.5 动态开岛层
 
-| 编号 | 功能 | 描述 | 优先级 |
-|------|------|------|--------|
-| **EE-401** | 开岛触发检测 | 遍历所有题型，若某题型满足：所有岛的最佳胜率 < 0.4 **且** 该题型样本数 ≥ 5，则触发开岛 | **P1** |
-| **EE-402** | SpawnPrompt | **输入：** 失败题型名 + 各岛在该题型的胜率 + 失败案例（≤5条）+ 现有所有岛的 perspective 列表<br>**输出：** `{ perspective, initial_strategy(8维), rationale }` | **P1** |
-| **EE-403** | 新岛注册 | 根据 SpawnPrompt 输出创建 `IslandConfig`（含 perspective）和种子 `StrategyDefinition`，调用 `IslandPool.add_island()` 注册 | **P1** |
-| **EE-404** | 开岛日志记录 | 记录开岛事件：触发题型、触发轮次、新岛 perspective、rationale、种子策略。写入 `evolution_log.jsonl` | **P2** |
+| 编号 | 功能 | 描述 | 优先级 | 状态 |
+|------|------|------|--------|------|
+| **EE-401** | 开岛触发检测 | 遍历所有题型，若某题型满足：所有岛的最佳胜率 < 0.4 **且** 该题型样本数 ≥ 5，则触发开岛 | **P1** | ✅ |
+| **EE-402** | SpawnPrompt | **输入：** 失败题型名 + 各岛在该题型的胜率 + 失败案例（≤5条）+ 现有所有岛的 perspective 列表<br>**输出：** `{ perspective, initial_strategy(8维), rationale }` | **P1** | ✅ |
+| **EE-403** | 新岛注册 | 根据 SpawnPrompt 输出创建 `IslandConfig`（含 perspective）和种子 `StrategyDefinition`，调用 `IslandPool.add_island()` 注册 | **P1** | ✅ |
+| **EE-404** | 开岛日志记录 | 记录开岛事件：触发题型、触发轮次、新岛 perspective、rationale、种子策略。写入 `evolution_log.jsonl` | **P2** | ✅ |
 
 ### 2.6 集成层
 
-| 编号 | 功能 | 描述 | 优先级 |
-|------|------|------|--------|
-| **EE-501** | main_multipath.py 集成 | 在主循环中，每处理完一批题后调用 `island_evolver.evolve_round()`，将 `EvolutionReport` 写入日志 | **P0** |
-| **EE-502** | 新建 direction_generator.py | 包含 `DirectionGenerator` 类，封装所有 LLM prompt 构建与调用逻辑 | **P0** |
-| **EE-503** | 新建 island_evolver.py | 包含 `IslandEvolver` 类，封装进化流程编排逻辑 | **P0** |
+| 编号 | 功能 | 描述 | 优先级 | 状态 |
+|------|------|------|--------|------|
+| **EE-501** | main_multipath.py 集成 | 在主循环中，每处理完一批题后调用 `island_evolver.evolve_round()`，将 `EvolutionReport` 写入日志 | **P0** | ❌ (deferred — requires runtime pipeline changes) |
+| **EE-502** | 新建 direction_generator.py | 包含 `DirectionGenerator` 类，封装所有 LLM prompt 构建与调用逻辑 | **P0** | ✅ (in evolution_engine.py) |
+| **EE-503** | 新建 island_evolver.py | 包含 `IslandEvolver` 类，封装进化流程编排逻辑 | **P0** | ✅ (in evolution_engine.py) |
 
 ### 2.7 测试
 
 | 编号 | 功能 | 描述 | 优先级 |
 |------|------|------|--------|
-| **EE-601** | test_refine_prompt_generation | 验证 Refine prompt 正确拼装8维+胜率+失败案例 | **P0** |
-| **EE-602** | test_refine_output_parsing | 验证合法 JSON → StrategyDefinition 转换 | **P0** |
-| **EE-603** | test_refine_output_parsing_malformed | 验证畸形 JSON 的错误处理 | **P0** |
-| **EE-604** | test_refine_mutation_amplitude | 验证变异幅度 ≤ 2 维的约束 | **P1** |
-| **EE-605** | test_diverge_prompt_generation | 验证 Diverge prompt 正确拼装 perspective+现有策略 | **P0** |
-| **EE-606** | test_diverge_output_parsing | 验证合法 JSON → StrategyDefinition 转换 | **P0** |
-| **EE-607** | test_diverge_output_parsing_malformed | 验证畸形 JSON 的错误处理 | **P0** |
-| **EE-608** | test_diverge_diversity_check_pass | 验证 ≥3 维不同时通过 | **P1** |
-| **EE-609** | test_diverge_diversity_check_fail | 验证 <3 维不同时拒绝 | **P1** |
-| **EE-610** | test_spawn_prompt_generation | 验证 Spawn prompt 正确拼装失败题型+各岛表现 | **P1** |
-| **EE-611** | test_spawn_output_parsing | 验证 perspective+strategy+rationale 解析 | **P1** |
-| **EE-612** | test_spawn_trigger_condition_met | 验证 win_rate<0.4 且 samples≥5 时触发 | **P1** |
-| **EE-613** | test_spawn_trigger_condition_not_met | 验证不满足条件时不触发 | **P1** |
-| **EE-614** | test_migration_distance_filter | 验证距离 ≥0.3 通过，<0.3 拒绝 | **P1** |
-| **EE-615** | test_migration_ring_topology | 验证环形拓扑 0→1→2→3→4→0 | **P1** |
-| **EE-616** | test_integration_full_round_evolution | 集成测试：5岛×(1 refine+1 diverge)=10个新策略 | **P1** |
-| **EE-617** | test_integration_evolution_with_migration | 集成测试：进化+迁移完整流程 | **P1** |
-| **EE-618** | test_integration_spawn_end_to_end | 端到端：触发检测→spawn prompt→新岛注册 | **P1** |
-| **EE-619** | test_integration_multi_round | 多轮进化稳定性（3轮连续进化） | **P1** |
-| **EE-620** | test_integration_empty_island_pool | 边界：空岛池不崩溃 | **P1** |
-| **EE-621** | test_regression_strategy_count_growth | 回归：每轮策略数量正确增长 | **P0** |
-| **EE-622** | test_regression_no_duplicate_strategies | 回归：不产生完全重复的策略 | **P1** |
-| **EE-623** | test_performance_llm_call_count | 性能：验证每轮 LLM 调用次数 = 2×岛数 + spawns | **P1** |
+| **EE-601** | test_refine_prompt_generation | 验证 Refine prompt 正确拼装8维+胜率+失败案例 | **P0** | ✅ |
+| **EE-602** | test_refine_output_parsing | 验证合法 JSON → StrategyDefinition 转换 | **P0** | ✅ |
+| **EE-603** | test_refine_output_parsing_malformed | 验证畸形 JSON 的错误处理 | **P0** | ✅ |
+| **EE-604** | test_refine_mutation_amplitude | 验证变异幅度 ≤ 2 维的约束 | **P1** | ✅ |
+| **EE-605** | test_diverge_prompt_generation | 验证 Diverge prompt 正确拼装 perspective+现有策略 | **P0** | ✅ |
+| **EE-606** | test_diverge_output_parsing | 验证合法 JSON → StrategyDefinition 转换 | **P0** | ✅ |
+| **EE-607** | test_diverge_output_parsing_malformed | 验证畸形 JSON 的错误处理 | **P0** | ✅ |
+| **EE-608** | test_diverge_diversity_check_pass | 验证 ≥3 维不同时通过 | **P1** | ✅ |
+| **EE-609** | test_diverge_diversity_check_fail | 验证 <3 维不同时拒绝 | **P1** | ✅ |
+| **EE-610** | test_spawn_prompt_generation | 验证 Spawn prompt 正确拼装失败题型+各岛表现 | **P1** | ✅ |
+| **EE-611** | test_spawn_output_parsing | 验证 perspective+strategy+rationale 解析 | **P1** | ✅ |
+| **EE-612** | test_spawn_trigger_condition_met | 验证 win_rate<0.4 且 samples≥5 时触发 | **P1** | ✅ |
+| **EE-613** | test_spawn_trigger_condition_not_met | 验证不满足条件时不触发 | **P1** | ✅ |
+| **EE-614** | test_migration_distance_filter | 验证距离 ≥0.3 通过，<0.3 拒绝 | **P1** | ✅ |
+| **EE-615** | test_migration_ring_topology | 验证环形拓扑 0→1→2→3→4→0 | **P1** | ✅ |
+| **EE-616** | test_integration_full_round_evolution | 集成测试：5岛×(1 refine+1 diverge)=10个新策略 | **P1** | ✅ |
+| **EE-617** | test_integration_evolution_with_migration | 集成测试：进化+迁移完整流程 | **P1** | ✅ |
+| **EE-618** | test_integration_spawn_end_to_end | 端到端：触发检测→spawn prompt→新岛注册 | **P1** | ✅ |
+| **EE-619** | test_integration_multi_round | 多轮进化稳定性（3轮连续进化） | **P1** | ✅ |
+| **EE-620** | test_integration_empty_island_pool | 边界：空岛池不崩溃 | **P1** | ✅ |
+| **EE-621** | test_regression_strategy_count_growth | 回归：每轮策略数量正确增长 | **P0** | ✅ |
+| **EE-622** | test_regression_no_duplicate_strategies | 回归：不产生完全重复的策略 | **P1** | ✅ |
+| **EE-623** | test_performance_llm_call_count | 性能：验证每轮 LLM 调用次数 = 2×岛数 + spawns | **P1** | ✅ |
 
 ---
 
