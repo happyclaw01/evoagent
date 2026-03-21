@@ -394,12 +394,15 @@ class TracingToolWrapper:
         """透传所有未定义属性到底层 ToolManager。"""
         return getattr(self._tool_manager, name)
 
-    async def execute_tool(self, tool_name: str, arguments: dict, **kwargs: Any) -> Any:
-        """执行工具并自动记录 trace。"""
-        action = TOOL_ACTION_MAP.get(tool_name, "tool_call")
-        query = _extract_query(tool_name, arguments)
+    async def execute_tool_call(self, server_name: str, tool_name: str, arguments: Any) -> Any:
+        """执行工具并自动记录 trace。
 
-        result = await self._tool_manager.execute_tool(tool_name, arguments, **kwargs)
+        Matches ToolManager.execute_tool_call(server_name, tool_name, arguments) signature.
+        """
+        action = TOOL_ACTION_MAP.get(tool_name, "tool_call")
+        query = _extract_query(tool_name, arguments if isinstance(arguments, dict) else {})
+
+        result = await self._tool_manager.execute_tool_call(server_name, tool_name, arguments)
 
         # 提取 key_info
         key_info = extract_key_info(action, result)

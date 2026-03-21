@@ -345,11 +345,11 @@ class TestTracingToolWrapper:
     @pytest.mark.asyncio
     async def test_execute_tool_records_trace(self):
         mock_tm = AsyncMock()
-        mock_tm.execute_tool = AsyncMock(return_value="search result text")
+        mock_tm.execute_tool_call = AsyncMock(return_value="search result text")
         collector = StepTraceCollector("task1", 0)
 
         wrapper = TracingToolWrapper(mock_tm, collector)
-        result = await wrapper.execute_tool("web_search", {"query": "test"})
+        result = await wrapper.execute_tool_call("server", "web_search", {"query": "test"})
 
         # Tool result is returned unchanged (DD-007)
         assert result == "search result text"
@@ -367,13 +367,13 @@ class TestTracingToolWrapper:
     @pytest.mark.asyncio
     async def test_multiple_calls_increment_steps(self):
         mock_tm = AsyncMock()
-        mock_tm.execute_tool = AsyncMock(return_value="result")
+        mock_tm.execute_tool_call = AsyncMock(return_value="result")
         collector = StepTraceCollector("task1", 0)
         wrapper = TracingToolWrapper(mock_tm, collector)
 
-        await wrapper.execute_tool("web_search", {"query": "q1"})
-        await wrapper.execute_tool("browse_webpage", {"url": "http://x.com"})
-        await wrapper.execute_tool("python_exec", {"code": "1+1"})
+        await wrapper.execute_tool_call("server", "web_search", {"query": "q1"})
+        await wrapper.execute_tool_call("server", "browse_webpage", {"url": "http://x.com"})
+        await wrapper.execute_tool_call("server", "python_exec", {"code": "1+1"})
 
         assert collector.step_count == 3
 
@@ -624,7 +624,7 @@ class TestIntegrationSinglePath:
 
         # Simulate a tool execution flow
         mock_tm = AsyncMock()
-        mock_tm.execute_tool = AsyncMock(side_effect=[
+        mock_tm.execute_tool_call = AsyncMock(side_effect=[
             [{"title": "Nobel 2024", "snippet": "Hopfield and Hinton"}],
             {"title": "Nobel Prize", "content": "Official announcement page"},
             "5500000.0\n",
@@ -632,15 +632,15 @@ class TestIntegrationSinglePath:
         wrapper = TracingToolWrapper(mock_tm, collector)
 
         # Step 1: search
-        await wrapper.execute_tool("web_search", {"query": "Nobel 2024"})
+        await wrapper.execute_tool_call("server", "web_search", {"query": "Nobel 2024"})
         collector.record_conclusion("Two winners confirmed", 0.6)
 
         # Step 2: browse
-        await wrapper.execute_tool("browse_webpage", {"url": "nobelprize.org"})
+        await wrapper.execute_tool_call("server", "browse_webpage", {"url": "nobelprize.org"})
         collector.record_conclusion("Official source confirms", 0.8)
 
         # Step 3: calculate
-        await wrapper.execute_tool("python_exec", {"code": "11000000/2"})
+        await wrapper.execute_tool_call("server", "python_exec", {"code": "11000000/2"})
         collector.record_conclusion("Each gets 5.5M SEK", 0.95)
 
         # Finalize

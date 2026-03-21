@@ -55,14 +55,14 @@ class TestIST409_TracingToolWrapperPipeline(unittest.TestCase):
 
         async def run():
             mock_tm = MagicMock()
-            mock_tm.execute_tool = AsyncMock(return_value="search result: Paris is capital")
+            mock_tm.execute_tool_call = AsyncMock(return_value="search result: Paris is capital")
 
             collector = StepTraceCollector(
                 task_id="test_task", path_index=0, strategy_name="breadth_first"
             )
             wrapper = TracingToolWrapper(mock_tm, collector)
 
-            result = await wrapper.execute_tool(
+            result = await wrapper.execute_tool_call("server", 
                 "web_search", {"query": "capital of France"}
             )
 
@@ -89,7 +89,7 @@ class TestIST409_TracingToolWrapperPipeline(unittest.TestCase):
 
         async def run():
             mock_tm = MagicMock()
-            mock_tm.execute_tool = AsyncMock(
+            mock_tm.execute_tool_call = AsyncMock(
                 side_effect=["result1", "result2", "result3"]
             )
 
@@ -98,9 +98,9 @@ class TestIST409_TracingToolWrapperPipeline(unittest.TestCase):
             )
             wrapper = TracingToolWrapper(mock_tm, collector)
 
-            await wrapper.execute_tool("web_search", {"query": "q1"})
-            await wrapper.execute_tool("browse_webpage", {"url": "http://example.com"})
-            await wrapper.execute_tool("python_exec", {"code": "print(42)"})
+            await wrapper.execute_tool_call("server", "web_search", {"query": "q1"})
+            await wrapper.execute_tool_call("server", "browse_webpage", {"url": "http://example.com"})
+            await wrapper.execute_tool_call("server", "python_exec", {"code": "print(42)"})
 
             digest = collector.finalize(answer="42")
             self.assertEqual(digest.total_steps, 3)
@@ -115,14 +115,14 @@ class TestIST409_TracingToolWrapperPipeline(unittest.TestCase):
 
         async def run():
             mock_tm = MagicMock()
-            mock_tm.execute_tool = AsyncMock(return_value="data found")
+            mock_tm.execute_tool_call = AsyncMock(return_value="data found")
 
             collector = StepTraceCollector(
                 task_id="conc_test", path_index=0, strategy_name="test"
             )
             wrapper = TracingToolWrapper(mock_tm, collector)
 
-            await wrapper.execute_tool("web_search", {"query": "test"})
+            await wrapper.execute_tool_call("server", "web_search", {"query": "test"})
             # Simulate agent outputting a conclusion after tool result
             collector.record_conclusion("Found relevant data about topic", confidence=0.7)
 
@@ -159,7 +159,7 @@ class TestIST410_TraceDigestStoreRoundTrip(unittest.TestCase):
                 )
 
                 mock_tm = MagicMock()
-                mock_tm.execute_tool = AsyncMock(
+                mock_tm.execute_tool_call = AsyncMock(
                     side_effect=[
                         [{"title": "Breaking News", "snippet": "Important finding"}],
                         {"title": "Article", "content": "Detailed analysis of the topic"},
@@ -168,13 +168,13 @@ class TestIST410_TraceDigestStoreRoundTrip(unittest.TestCase):
                 )
                 wrapper = TracingToolWrapper(mock_tm, collector)
 
-                await wrapper.execute_tool("web_search", {"query": "test query"})
+                await wrapper.execute_tool_call("server", "web_search", {"query": "test query"})
                 collector.record_conclusion("Found relevant news article", confidence=0.6)
 
-                await wrapper.execute_tool("browse_webpage", {"url": "http://example.com"})
+                await wrapper.execute_tool_call("server", "browse_webpage", {"url": "http://example.com"})
                 collector.record_conclusion("Article confirms initial hypothesis", confidence=0.8)
 
-                await wrapper.execute_tool("python_exec", {"code": "print(42)"})
+                await wrapper.execute_tool_call("server", "python_exec", {"code": "print(42)"})
                 collector.record_conclusion("Computation verified the number", confidence=0.9)
 
                 collector.record_tokens(1500)
@@ -237,9 +237,9 @@ class TestIST410_TraceDigestStoreRoundTrip(unittest.TestCase):
                         strategy_name=f"strategy_{i}",
                     )
                     mock_tm = MagicMock()
-                    mock_tm.execute_tool = AsyncMock(return_value="result")
+                    mock_tm.execute_tool_call = AsyncMock(return_value="result")
                     wrapper = TracingToolWrapper(mock_tm, collector)
-                    await wrapper.execute_tool("web_search", {"query": f"query_{i}"})
+                    await wrapper.execute_tool_call("server", "web_search", {"query": f"query_{i}"})
                     digest = collector.finalize(
                         answer=f"answer_{i}", final_confidence="medium"
                     )
@@ -304,9 +304,9 @@ class TestIST413_DigestStoreConcurrency(unittest.TestCase):
                         strategy_name=f"strategy_{path_index}",
                     )
                     mock_tm = MagicMock()
-                    mock_tm.execute_tool = AsyncMock(return_value=f"result_{path_index}")
+                    mock_tm.execute_tool_call = AsyncMock(return_value=f"result_{path_index}")
                     wrapper = TracingToolWrapper(mock_tm, collector)
-                    await wrapper.execute_tool("web_search", {"query": f"q_{path_index}"})
+                    await wrapper.execute_tool_call("server", "web_search", {"query": f"q_{path_index}"})
                     digest = collector.finalize(
                         answer=f"answer_{path_index}", final_confidence="medium"
                     )
@@ -340,9 +340,9 @@ class TestIST413_DigestStoreConcurrency(unittest.TestCase):
                         task_id="rw_test", path_index=i, strategy_name=f"s_{i}"
                     )
                     mock_tm = MagicMock()
-                    mock_tm.execute_tool = AsyncMock(return_value="r")
+                    mock_tm.execute_tool_call = AsyncMock(return_value="r")
                     wrapper = TracingToolWrapper(mock_tm, collector)
-                    await wrapper.execute_tool("web_search", {"query": "q"})
+                    await wrapper.execute_tool_call("server", "web_search", {"query": "q"})
                     digest = collector.finalize(answer=f"a_{i}")
                     await store.save_path_digest(digest)
 
@@ -355,9 +355,9 @@ class TestIST413_DigestStoreConcurrency(unittest.TestCase):
                         task_id="rw_test", path_index=idx, strategy_name=f"s_{idx}"
                     )
                     mock_tm = MagicMock()
-                    mock_tm.execute_tool = AsyncMock(return_value="r")
+                    mock_tm.execute_tool_call = AsyncMock(return_value="r")
                     wrapper = TracingToolWrapper(mock_tm, collector)
-                    await wrapper.execute_tool("web_search", {"query": "q"})
+                    await wrapper.execute_tool_call("server", "web_search", {"query": "q"})
                     digest = collector.finalize(answer=f"a_{idx}")
                     await store.save_path_digest(digest)
 
@@ -397,9 +397,9 @@ class TestIST413_DigestStoreConcurrency(unittest.TestCase):
                         task_id="mixed_test", path_index=i, strategy_name=f"s_{i}"
                     )
                     mock_tm = MagicMock()
-                    mock_tm.execute_tool = AsyncMock(return_value="r")
+                    mock_tm.execute_tool_call = AsyncMock(return_value="r")
                     wrapper = TracingToolWrapper(mock_tm, collector)
-                    await wrapper.execute_tool("web_search", {"query": "q"})
+                    await wrapper.execute_tool_call("server", "web_search", {"query": "q"})
                     digest = collector.finalize(answer=f"a_{i}")
                     digests.append(digest)
 
