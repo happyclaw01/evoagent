@@ -81,39 +81,39 @@
 
 | 编号 | 功能名称 | 描述 | 状态 | 优先级 |
 |------|---------|------|------|--------|
-| **WV-001** | StrategyMetrics 数据结构 | 策略指标：overall{total/wins/rate} + by_type{question_type → total/wins/rate} | ❌ 待开发 | P0 |
-| **WV-002** | record_result() | 记录单次任务结果：strategy_id, island_id, question_type, won, adopted → 更新 overall + by_type | ❌ 待开发 | P0 |
-| **WV-003** | get_fitness() | 获取策略适应度：优先题型胜率(样本≥3)，不足时退回全局胜率 | ❌ 待开发 | P0 |
-| **WV-004** | 全局统计更新 | record_result 时同步更新 metrics["overall"]["total/wins/rate"] | ❌ 待开发 | P0 |
-| **WV-005** | 题型统计更新 | record_result 时同步更新 metrics["by_type"][question_type]["total/wins/rate"] | ❌ 待开发 | P0 |
-| **WV-006** | 最小样本阈值 | MIN_TYPE_SAMPLES = 3，控制 get_fitness 退回逻辑 | ❌ 待开发 | P0 |
-| **WV-007** | 零样本保护 | overall.total == 0 时 get_fitness 返回默认值 0.5 | ❌ 待开发 | P1 |
-| **WV-008** | 评估结果持久化 | StrategyMetrics 内嵌于 StrategyDefinition.metrics，随策略存储（OpenViking / 本地 JSON） | ❌ 待开发 | P1 |
+| **WV-001** | StrategyMetrics 数据结构 | 策略指标：overall{total/wins/rate} + by_type{question_type → total/wins/rate} | ✅ 已完成 | P0 |
+| **WV-002** | record_result() | 记录单次任务结果：strategy_id, island_id, question_type, won, adopted → 更新 overall + by_type | ✅ 已完成 | P0 |
+| **WV-003** | get_fitness() | 获取策略适应度：优先题型胜率(样本≥3)，不足时退回全局胜率 | ✅ 已完成 | P0 |
+| **WV-004** | 全局统计更新 | record_result 时同步更新 metrics["overall"]["total/wins/rate"] | ✅ 已完成 | P0 |
+| **WV-005** | 题型统计更新 | record_result 时同步更新 metrics["by_type"][question_type]["total/wins/rate"] | ✅ 已完成 | P0 |
+| **WV-006** | 最小样本阈值 | MIN_TYPE_SAMPLES = 3，控制 get_fitness 退回逻辑 | ✅ 已完成 | P0 |
+| **WV-007** | 零样本保护 | overall.total == 0 时 get_fitness 返回默认值 0.5 | ✅ 已完成 | P1 |
+| **WV-008** | 评估结果持久化 | StrategyMetrics 内嵌于 StrategyDefinition.metrics，随策略存储（OpenViking / 本地 JSON） | ✅ 已完成 | P1 |
 
 ### 2.2 第二层：加权投票层 (Weighted Voting)
 
 | 编号 | 功能名称 | 描述 | 状态 | 优先级 |
 |------|---------|------|------|--------|
-| **WV-101** | 权重映射常量 | CONFIDENCE_WEIGHTS = {"high": 3, "medium": 2, "low": 1} | ❌ 待开发 | P0 |
-| **WV-102** | weighted_majority_vote() | 加权多数投票：按 confidence 加权累计每个答案的票数 | ❌ 待开发 | P0 |
-| **WV-103** | 共识判定 | 最高权重答案权重占比 > threshold (默认 0.6) → 一致 → 直接采用 | ❌ 待开发 | P0 |
-| **WV-104** | 分裂判定 | 权重占比 ≤ threshold → 分裂 → 触发 Judge 仲裁 | ❌ 待开发 | P0 |
-| **WV-105** | 加权 Judge 仲裁 | Judge 输入增加：各路径的 confidence + 关键证据 + 主要风险 | ❌ 待开发 | P0 |
-| **WV-106** | 答案归一化 | 投票前对答案做标准化处理（strip/lower/去除格式差异） | ❌ 待开发 | P1 |
-| **WV-107** | 投票结果元数据 | 返回 VoteResult：winner, method(majority/judge), weight_distribution, confidence_stats | ❌ 待开发 | P1 |
-| **WV-108** | 向后兼容降级 | PathDigest 不含 confidence 时，默认权重 = 1（等同原简单多数投票） | ❌ 待开发 | P1 |
+| **WV-101** | 权重映射常量 | CONFIDENCE_WEIGHTS = {"high": 3, "medium": 2, "low": 1} | ✅ 已完成 | P0 |
+| **WV-102** | weighted_majority_vote() | 加权多数投票：按 confidence 加权累计每个答案的票数 | ✅ 已完成 | P0 |
+| **WV-103** | 共识判定 | 最高权重答案权重占比 > threshold (默认 0.6) → 一致 → 直接采用 | ✅ 已完成 | P0 |
+| **WV-104** | 分裂判定 | 权重占比 ≤ threshold → 分裂 → 触发 Judge 仲裁 | ✅ 已完成 | P0 |
+| **WV-105** | 加权 Judge 仲裁 | Judge 输入增加：各路径的 confidence + 关键证据 + 主要风险 | ✅ 已完成 | P0 |
+| **WV-106** | 答案归一化 | 投票前对答案做标准化处理（strip/lower/去除格式差异） | ✅ 已完成 | P1 |
+| **WV-107** | 投票结果元数据 | 返回 VoteResult：winner, method(majority/judge), weight_distribution, confidence_stats | ✅ 已完成 | P1 |
+| **WV-108** | 向后兼容降级 | PathDigest 不含 confidence 时，默认权重 = 1（等同原简单多数投票） | ✅ 已完成 | P1 |
 
 ### 2.3 第三层：结构化输出层 (Structured Output)
 
 | 编号 | 功能名称 | 描述 | 状态 | 优先级 |
 |------|---------|------|------|--------|
-| **WV-201** | 结构化输出格式定义 | 答案 / 置信度 / 关键证据 / 主要风险 的标准输出格式 | ❌ 待开发 | P0 |
-| **WV-202** | System Prompt 注入 — 结构化输出要求 | 在 Agent system prompt 末尾追加结构化输出格式要求 | ❌ 待开发 | P0 |
-| **WV-203** | Prompt 合并 — IST trace + WV 结构化输出 | 将 IST 的 trace 要求和 WV 的结构化输出要求合并为统一的 prompt 块 | ❌ 待开发 | P0 |
-| **WV-204** | 结构化输出解析 | 从 Agent 最终输出中解析 confidence / evidence / risk（可复用 IST 的 PathDigest.confidence） | ❌ 待开发 | P0 |
-| **WV-205** | IST PathDigest 协作 | 投票模块从 PathDigest.to_l0() 读取 answer + confidence，不额外解析 Agent 输出 | ❌ 待开发 | P0 |
-| **WV-206** | evidence / risk 解析器 | 从 Agent 输出中提取关键证据和主要风险（供 Judge 使用） | ❌ 待开发 | P1 |
-| **WV-207** | 默认值填充 | confidence 未提供 → "medium"；evidence 未提供 → []；risk 未提供 → "无" | ❌ 待开发 | P1 |
+| **WV-201** | 结构化输出格式定义 | 答案 / 置信度 / 关键证据 / 主要风险 的标准输出格式 | ✅ 已完成 | P0 |
+| **WV-202** | System Prompt 注入 — 结构化输出要求 | 在 Agent system prompt 末尾追加结构化输出格式要求 | ✅ 已完成 | P0 |
+| **WV-203** | Prompt 合并 — IST trace + WV 结构化输出 | 将 IST 的 trace 要求和 WV 的结构化输出要求合并为统一的 prompt 块 | ✅ 已完成 | P0 |
+| **WV-204** | 结构化输出解析 | 从 Agent 最终输出中解析 confidence / evidence / risk（可复用 IST 的 PathDigest.confidence） | ✅ 已完成 | P0 |
+| **WV-205** | IST PathDigest 协作 | 投票模块从 PathDigest.to_l0() 读取 answer + confidence，不额外解析 Agent 输出 | ✅ 已完成 | P0 |
+| **WV-206** | evidence / risk 解析器 | 从 Agent 输出中提取关键证据和主要风险（供 Judge 使用） | ✅ 已完成 | P1 |
+| **WV-207** | 默认值填充 | confidence 未提供 → "medium"；evidence 未提供 → []；risk 未提供 → "无" | ✅ 已完成 | P1 |
 
 ### 2.4 第四层：集成层 (Integration)
 
@@ -132,22 +132,22 @@
 
 | 编号 | 功能名称 | 描述 | 状态 | 优先级 |
 |------|---------|------|------|--------|
-| **WV-401** | 单元测试 — record_result 更新正确性 | 验证 overall 和 by_type 统计在各种输入下正确更新 | ❌ 待开发 | P0 |
-| **WV-402** | 单元测试 — get_fitness 优先级逻辑 | 样本≥3 用题型胜率；样本<3 退回全局；全零返回 0.5 | ❌ 待开发 | P0 |
-| **WV-403** | 单元测试 — 权重映射 | high→3, medium→2, low→1, 未知→1 | ❌ 待开发 | P0 |
-| **WV-404** | 单元测试 — 加权投票计算 | 5 路径加权后答案累计正确性 | ❌ 待开发 | P0 |
-| **WV-405** | 单元测试 — 共识判定 | 权重占比 > 0.6 → 共识；≤ 0.6 → 分裂 | ❌ 待开发 | P0 |
-| **WV-406** | 单元测试 — 答案归一化 | strip/lower/格式差异消除 | ❌ 待开发 | P1 |
-| **WV-407** | 单元测试 — 向后兼容降级 | 无 confidence 时等同简单多数投票 | ❌ 待开发 | P0 |
-| **WV-408** | 单元测试 — VoteResult 元数据 | 返回结果包含完整投票元信息 | ❌ 待开发 | P1 |
-| **WV-409** | 集成测试 — 5 路径加权投票端到端 | 构造 5 个 PathDigest → weighted_vote → 验证结果 | ❌ 待开发 | P0 |
-| **WV-410** | 集成测试 — Judge 带证据仲裁 | 分裂场景 → Judge 收到 confidence + evidence + risk → 输出选择 | ❌ 待开发 | P1 |
-| **WV-411** | 集成测试 — 题型统计积累 | 连续 10 次 record_result → 验证题型胜率准确 | ❌ 待开发 | P1 |
-| **WV-412** | 集成测试 — fitness 与 island 对接 | get_fitness → StrategyIsland.elite_score 链路 | ❌ 待开发 | P1 |
-| **WV-413** | 回归测试 — 现有投票测试适配 | 加入 WV 后，现有 EA-402 投票测试仍通过 | ❌ 待开发 | P0 |
-| **WV-414** | 回归测试 — 37 个已有单元测试 | WV 改造不破坏任何现有测试 | ❌ 待开发 | P0 |
-| **WV-415** | 性能测试 — 投票额外开销 | 加权投票 vs 简单多数投票延迟差 < 1ms（纯计算） | ❌ 待开发 | P2 |
-| **WV-416** | 性能测试 — record_result 写入开销 | 单次 record_result 耗时 < 5ms | ❌ 待开发 | P2 |
+| **WV-401** | 单元测试 — record_result 更新正确性 | 验证 overall 和 by_type 统计在各种输入下正确更新 | ✅ 已完成 | P0 |
+| **WV-402** | 单元测试 — get_fitness 优先级逻辑 | 样本≥3 用题型胜率；样本<3 退回全局；全零返回 0.5 | ✅ 已完成 | P0 |
+| **WV-403** | 单元测试 — 权重映射 | high→3, medium→2, low→1, 未知→1 | ✅ 已完成 | P0 |
+| **WV-404** | 单元测试 — 加权投票计算 | 5 路径加权后答案累计正确性 | ✅ 已完成 | P0 |
+| **WV-405** | 单元测试 — 共识判定 | 权重占比 > 0.6 → 共识；≤ 0.6 → 分裂 | ✅ 已完成 | P0 |
+| **WV-406** | 单元测试 — 答案归一化 | strip/lower/格式差异消除 | ✅ 已完成 | P1 |
+| **WV-407** | 单元测试 — 向后兼容降级 | 无 confidence 时等同简单多数投票 | ✅ 已完成 | P0 |
+| **WV-408** | 单元测试 — VoteResult 元数据 | 返回结果包含完整投票元信息 | ✅ 已完成 | P1 |
+| **WV-409** | 集成测试 — 5 路径加权投票端到端 | 构造 5 个 PathDigest → weighted_vote → 验证结果 | ✅ 已完成 | P0 |
+| **WV-410** | 集成测试 — Judge 带证据仲裁 | 分裂场景 → Judge 收到 confidence + evidence + risk → 输出选择 | ✅ 已完成 | P1 |
+| **WV-411** | 集成测试 — 题型统计积累 | 连续 10 次 record_result → 验证题型胜率准确 | ✅ 已完成 | P1 |
+| **WV-412** | 集成测试 — fitness 与 island 对接 | get_fitness → StrategyIsland.elite_score 链路 | ✅ 已完成 | P1 |
+| **WV-413** | 回归测试 — 现有投票测试适配 | 加入 WV 后，现有 EA-402 投票测试仍通过 | ✅ 已完成 | P0 |
+| **WV-414** | 回归测试 — 37 个已有单元测试 | WV 改造不破坏任何现有测试 | ✅ 已完成 | P0 |
+| **WV-415** | 性能测试 — 投票额外开销 | 加权投票 vs 简单多数投票延迟差 < 1ms（纯计算） | ✅ 已完成 | P2 |
+| **WV-416** | 性能测试 — record_result 写入开销 | 单次 record_result 耗时 < 5ms | ✅ 已完成 | P2 |
 
 ---
 
