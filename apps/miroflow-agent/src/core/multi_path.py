@@ -1425,15 +1425,73 @@ async def execute_multi_path_pipeline(
                 "samples": total_attempts,
             }
 
-            # Create a no-op LLM call (evolution uses LLM but we don't want to call it here
-            # unless we have a real client — defer actual LLM evolution to batch mode)
-            # For now, just run migration (no LLM needed)
-            def _noop_llm(prompt: str) -> str:
-                return "{}"
+            # EE LLM call: use OpenRouter + GPT-5 for evolution
+            ee_client = None
+            try:
+                from omegaconf import OmegaConf as _OC
+                ee_llm_cfg = _OC.create({
+                    "llm": {
+                        "provider": "openai",
+                        "model_name": "gpt-5",
+                        "api_key": cfg.get("evolution", {}).get("api_key", "") or cfg.get("llm", {}).get("api_key", ""),
+                        "base_url": cfg.get("evolution", {}).get("base_url", "") or "https://openrouter.ai/api/v1",
+                        "max_tokens": 2048,
+                    }
+                })
+                ee_client = ClientFactory(
+                    task_id=f"evolution-{uuid.uuid4()}", cfg=ee_llm_cfg, task_log=master_log
+                )
 
-            direction_gen = DirectionGenerator(llm_call=_noop_llm)
+                async def _ee_llm_call_async(prompt: str) -> str:
+                    response, _ = await ee_client.create_message(
+                        system_prompt="You are a strategy evolution engine. Return only valid JSON.",
+                        message_history=[{"role": "user", "content": prompt}],
+                        max_tokens=2048,
+                        agent_type="evolution",
+                    )
+                    from .multi_path import extract_llm_response_text
+                    return extract_llm_response_text(str(response)) or str(response)
+
+                # Wrap async call for sync DirectionGenerator
+                import asyncio as _aio
+                _ee_loop = _aio.get_event_loop()
+
+                def _ee_llm_call(prompt: str) -> str:
+                    future = _aio.ensure_future(_ee_llm_call_async(prompt))
+                    # We're already in an async context, use a thread to avoid deadlock
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                        result = executor.submit(
+                            lambda: _aio.new_event_loop().run_until_complete(_ee_llm_call_async(prompt))
+                        ).result(timeout=60)
+                    return result
+
+            except Exception as e:
+                logger.warning(f"Failed to create EE LLM client, evolution will skip refine/diverge: {e}")
+                def _ee_llm_call(prompt: str) -> str:
+                    return "{}"
+
+            direction_gen = DirectionGenerator(llm_call=_ee_llm_call)
             evolver = IslandEvolver(direction_gen)
-            report = evolver.evolve_round(pool, round_stats)
+
+            # Pass experience_store for richer refine context
+            evolving_cfg_ee = cfg.get("evolving", {})
+            ee_experience_store = None
+            if evolving_cfg_ee.get("enabled", False):
+                try:
+                    from ..evolving.experience_store import ExperienceStore as _EEExpStore
+                    ee_experience_store = _EEExpStore(
+                        evolving_cfg_ee.get("experience_file", ""),
+                        viking_storage=viking_storage,
+                        viking_context=viking_context,
+                    )
+                except Exception:
+                    pass
+
+            report = evolver.evolve_round(pool, round_stats, experience_store=ee_experience_store)
+
+            if ee_client:
+                ee_client.close()
             master_log.log_step(
                 "info", "MultiPath | Evolution",
                 f"Evolution round: refined={len(report.refined_strategies)}, "
