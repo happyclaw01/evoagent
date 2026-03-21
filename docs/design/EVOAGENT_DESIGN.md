@@ -5,7 +5,7 @@
 > **核心理念**: 将进化搜索方法论应用于 Research Agent，通过多路径探索和策略进化超越单链路 ReAct 循环  
 > **分支**: `main`  
 > **创建日期**: 2026-03-13  
-> **最后更新**: 2026-03-20  
+> **最后更新**: 2026-03-14  
 > **设计参考**: Self-Improving Agent (ClawHub: pskoett/self-improving-agent), OpenViking (volcengine), 谢一凡硕士论文 (SJTU, 2025)
 > **研究日志**: `docs/research-log/` (记录设计思考过程，为论文写作积累素材)
 
@@ -152,6 +152,9 @@ EvoAgent 的进化系统融合两种范式：
 | **EA-405** | 基准对比测试 | 在 GAIA/HLE 子集上对比单路径 vs 多路径的正确率 | ❌ 待开发 | P1 |
 | **EA-406** | 成本效益分析 | 对比不同路径数（1/2/3/5）的正确率与成本比 | ❌ 待开发 | P2 |
 | **EA-407** | 策略消融实验 | 单独测试每个策略变体的独立贡献 | ❌ 待开发 | P2 |
+| **EA-408** | 持续预测引擎 | 多路径初始预测 + 滚动更新，产生完整预测轨迹 | ✅ 已实现 | P1 |
+| **EA-409** | 预测更新调度器 | 按时间间隔或突发事件触发预测更新，自适应调频 | ✅ 已实现 | P1 |
+| **EA-410** | 预测验证与轨迹分析 | 对比预测vs实际，分析更新轨迹收敛/发散，提取经验 | ✅ 已实现 | P1 |
 
 ---
 
@@ -573,155 +576,7 @@ async def generate_evolved_strategy(
 
 ---
 
-## 12. Inline Step Trace — 零成本运行时摘要
-
-### 12.1 问题
-
-反思模块（EA-108 / Reflector）需要读取执行日志来提取经验。当前的日志结构：
-
-| 数据层 | 典型 Token 消耗 | 说明 |
-|--------|----------------|------|
-| `main_agent_message_history` | **~13,000-18,000** | 完整对话含搜索原文，**大头** |
-| `step_logs` 原始 | ~4,000-7,000 | 所有步骤的原始信息 |
-| Reflector 截取 (max15步, 300字符) | ~600 | 信息密度低，丢失关键推理 |
-
-Reflector 要么读太多（原始 log，1.5 万 token），要么读太少（截取版，丢失推理链）。
-
-### 12.2 方案：每步留痕 + 自动成摘要
-
-**核心思路**：不在事后用额外 LLM 调用生成摘要，而是在运行时每一步动作都留下一条结构化短记录（Step Trace），一个 path 跑完后，所有 trace 拼接起来**自动就是摘要**。
-
-```
-传统方案:  执行 → 存原始 log → (额外 LLM 调用) → 生成摘要 → 反思读摘要
-新方案:    执行 → 每步留 trace → 跑完自动拼成摘要 → 反思直接读  (零额外调用)
-```
-
-### 12.3 Step Trace 格式
-
-每个 step 产生一条 trace，包含两部分：
-- **key_info**：工具层自动从返回结果中截取的关键信息
-- **conclusion**：大模型在该步推理后得出的结论
-
-```python
-@dataclass
-class StepTrace:
-    step: int                    # 步骤序号
-    action: str                  # 动作类型: search / browse / calculate / reason
-    query: str                   # 输入 (搜索词 / URL / 表达式)
-    key_info: str                # 工具层自动摘取的关键返回信息 (~50 chars)
-    conclusion: str              # 模型当步得出的结论 (~80 chars)
-    confidence: float            # 当前置信度 0-1
-```
-
-**示例：一个 8 步 path 的完整 trace**
-
-```json
-[
-  {"step": 1, "action": "search", "query": "2024 Nobel Physics laureates",
-   "key_info": "Hopfield & Hinton won for neural network foundations",
-   "conclusion": "Two winners confirmed, both from AI/neural-net domain"},
-  {"step": 2, "action": "browse", "query": "nobelprize.org/prizes/physics/2024",
-   "key_info": "John Hopfield (Princeton), Geoffrey Hinton (U of Toronto)",
-   "conclusion": "Official source confirms names and affiliations"},
-  {"step": 3, "action": "search", "query": "Hopfield network contribution",
-   "key_info": "1982 Hopfield network, associative memory, energy-based model",
-   "conclusion": "Hopfield's key contribution is the Hopfield network for associative memory"},
-  {"step": 4, "action": "search", "query": "Hinton backpropagation deep learning",
-   "key_info": "Backpropagation popularization, Boltzmann machines, dropout",
-   "conclusion": "Hinton is foundational to modern deep learning, multiple key contributions"},
-  {"step": 5, "action": "reason", "query": "synthesize findings",
-   "key_info": null,
-   "conclusion": "Both laureates pioneered neural network theory that enabled modern AI"},
-  {"step": 6, "action": "search", "query": "Nobel Physics 2024 prize amount",
-   "key_info": "11 million SEK (~$1.1M USD), shared equally",
-   "conclusion": "Standard Nobel prize amount, split 50/50"},
-  {"step": 7, "action": "calculate", "query": "11000000 / 2",
-   "key_info": "5500000.0",
-   "conclusion": "Each laureate receives 5.5 million SEK"},
-  {"step": 8, "action": "reason", "query": "formulate final answer",
-   "key_info": null,
-   "conclusion": "High confidence answer ready: Hopfield & Hinton, neural networks, shared prize"}
-]
-```
-
-**Token 消耗对比：**
-
-| 方案 | Token 消耗 | 额外 API 调用 | 信息完整度 |
-|------|-----------|--------------|-----------|
-| 原始 message_history | ~15,000 | 0 | 100%（含搜索原文噪音） |
-| Reflector 截取 | ~600 | 0 | 30%（丢失推理链） |
-| **Inline Step Trace** | **~300-400** | **0** | **80%+（结构化关键信息 + 结论）** |
-
-### 12.4 实现方式
-
-**key_info 获取（工具层自动）：**
-
-```python
-class TracingToolWrapper:
-    """包装现有工具，自动提取 key_info"""
-    
-    async def search(self, query: str) -> Tuple[str, str]:
-        """返回 (完整结果, key_info摘要)"""
-        result = await self.inner_tool.search(query)
-        # 自动提取：取第一条结果的标题+摘要，截取前 80 字符
-        key_info = self._extract_key_info(result, max_chars=80)
-        return result, key_info
-    
-    def _extract_key_info(self, result: str, max_chars: int = 80) -> str:
-        """从工具返回中自动提取关键信息"""
-        # 搜索结果: 取第一条的 title + snippet
-        # 网页浏览: 取页面标题 + 首段
-        # 代码执行: 取 stdout 输出
-        ...
-```
-
-**conclusion 获取（模型自生成）：**
-
-在 Agent 的 system prompt 中加入格式要求：
-
-```
-After each tool use, output a brief conclusion tag:
-<conclusion>Your one-sentence takeaway from this step</conclusion>
-```
-
-运行时解析 agent 输出，提取 `<conclusion>` 标签内容存入 trace。模型本来就会在工具返回后做一句总结再决定下一步，这只是把那句话结构化提取出来，**不增加额外 token 生成量**。
-
-### 12.5 存储与加载
-
-Step Trace 存入 OpenViking，分层对应：
-
-| 层级 | 内容 | Token |
-|------|------|-------|
-| L0 | 最终结论 + 置信度 | ~30 |
-| L1 | 完整 Step Trace (上面的 JSON) | ~300-400 |
-| L2 | 原始 step_logs + message_history | ~15,000 (按需) |
-
-反思模块默认读 L1（Step Trace），只有需要深度分析时才加载 L2。
-
-### 12.6 设计决策
-
-| 编号 | 决策 | 理由 |
-|------|------|------|
-| DD-011 | 每步留 trace 而非事后生成摘要 | 零额外 API 调用，信息不丢失 |
-| DD-012 | key_info 由工具层自动提取 | 不依赖模型自觉，100% 可靠 |
-| DD-013 | conclusion 由模型 inline 生成 | 模型本来就会总结，只是结构化提取 |
-| DD-014 | trace 替代 message_history 作为反思输入 | 从 ~15k tokens 降到 ~400 tokens，降 97% |
-
----
-
-## 13. 岛模型与全路径并行 (更新设计)
-
-### 13.1 核心变化：每次所有岛全上
-
-原设计中由 Question Parser 选择岛；新设计中 **每次所有岛全部参与**：
-
-- 5 个岛 = 5 条路径并行，动态开岛后路径数增加
-- Question Parser 的作用调整：不再驱动"选哪个岛"，而是驱动**岛内策略采样**（每个岛选该题型上最优的策略）+ **结果记录**（按题型拆分胜率）+ **进化方向分析**
-- 成本：5 路径约为现有 3 路径的 1.7 倍 ⚠️
-
----
-
-## 14. 文件结构 (更新版)
+## 12. 文件结构 (更新版)
 
 ```
 apps/miroflow-agent/
@@ -780,7 +635,7 @@ docs/design/
 
 ---
 
-## 15. 开发路线图 (更新版)
+## 13. 开发路线图 (更新版)
 
 ### Phase 1: 基础多路径 ✅ 完成
 - EA-001~012, EA-301~307
@@ -808,7 +663,7 @@ docs/design/
 
 ---
 
-## 16. 已验证的测试结果
+## 14. 已验证的测试结果
 
 ### 测试 1: arxiv 论文查询 (2026-03-13)
 
@@ -824,7 +679,7 @@ docs/design/
 
 ---
 
-## 17. 设计决策记录
+## 15. 设计决策记录
 
 | 编号 | 决策 | 理由 | 日期 |
 |------|------|------|------|
@@ -841,7 +696,7 @@ docs/design/
 
 ---
 
-## 18. 风险与缓解
+## 16. 风险与缓解
 
 | 风险 | 影响 | 概率 | 缓解措施 |
 |------|------|------|---------|
@@ -854,7 +709,7 @@ docs/design/
 
 ---
 
-## 19. 术语表
+## 17. 术语表
 
 | 术语 | 定义 |
 |------|------|
@@ -875,7 +730,7 @@ docs/design/
 
 ---
 
-## 20. 外部研究支撑
+## 18. 外部研究支撑
 
 ### 18.1 谢一凡硕士论文 (上海交通大学, 2025)
 
