@@ -50,11 +50,15 @@ REFINE_PROMPT = """You are an AI strategy optimizer. Your task is to REFINE an e
 ## Recent Failure Cases
 {failure_cases}
 
+## Reflector Experience Insights
+{experience_insights}
+
 ## Instructions
-1. Analyze the failure cases and low-performing question types
+1. Analyze the failure cases, reflector experience insights, and low-performing question types
 2. Identify which 1-{max_dims} dimensions to adjust to address the weaknesses
 3. Make MINIMAL changes — only modify what's necessary
 4. Keep the strategy's core approach intact
+5. Pay special attention to the reflector insights — they capture WHY failures happened (e.g. outdated info, wrong reasoning, insufficient search)
 
 ## Output Format
 Return ONLY a JSON object with all 7 dimensions:
@@ -249,6 +253,7 @@ class DirectionGenerator:
         best_strategy: StrategyDefinition,
         type_stats: Dict[str, float],
         failures: List[Dict],
+        experience_insights: str = "",
     ) -> str:
         """构建 Refine prompt (EE-102)。"""
         return REFINE_PROMPT.format(
@@ -257,6 +262,7 @@ class DirectionGenerator:
             ),
             type_win_rates=json.dumps(type_stats, indent=2),
             failure_cases=self._format_failures(failures),
+            experience_insights=experience_insights or "(No reflector experiences available)",
             max_dims=self.max_refine_dims,
         )
 
@@ -265,12 +271,13 @@ class DirectionGenerator:
         best_strategy: StrategyDefinition,
         type_stats: Dict[str, float],
         failures: List[Dict],
+        experience_insights: str = "",
     ) -> StrategyDefinition:
         """生成 Refine 策略 (EE-101)。
 
         基于最优策略微调 1-2 个维度。
         """
-        prompt = self.build_refine_prompt(best_strategy, type_stats, failures)
+        prompt = self.build_refine_prompt(best_strategy, type_stats, failures, experience_insights)
         response = self.llm_call(prompt)
         new_strategy = self._parse_strategy_response(response, parent=best_strategy)
 
@@ -466,6 +473,7 @@ class IslandEvolver:
         self,
         island_pool: IslandPool,
         round_stats: Dict[str, Any],
+        experience_store: Any = None,
     ) -> EvolutionReport:
         """执行一轮完整进化 (EE-003)。
 
@@ -503,8 +511,8 @@ class IslandEvolver:
                 island.config.name, {}
             )
 
-            # Refine (EE-101)
-            refined = self._refine_island(island, island_stats)
+            # Refine (EE-101) — feed reflector experiences for richer context
+            refined = self._refine_island(island, island_stats, experience_store)
             if refined is not None:
                 island.add_strategy(refined)
                 report.refined_strategies.append(refined)
@@ -534,8 +542,13 @@ class IslandEvolver:
         self,
         island: StrategyIsland,
         island_stats: Dict[str, Any],
+        experience_store: Any = None,
     ) -> Optional[StrategyDefinition]:
-        """对单个岛执行 Refine 操作 (EE-101)。"""
+        """对单个岛执行 Refine 操作 (EE-101)。
+
+        When experience_store is provided, queries relevant failure experiences
+        from the reflector and includes them in the refine prompt for richer context.
+        """
         best_strategy = island_stats.get("best_strategy")
         if best_strategy is None:
             return None
@@ -543,11 +556,42 @@ class IslandEvolver:
         type_win_rates = island_stats.get("type_win_rates", {})
         failures = island_stats.get("failures", [])[:3]
 
+        # Pull reflector experiences for low-performing question types
+        experience_insights = ""
+        if experience_store is not None:
+            try:
+                # Find question types with low win rates
+                weak_types = [
+                    qt for qt, rate in type_win_rates.items()
+                    if isinstance(rate, (int, float)) and rate < 0.5
+                ]
+                relevant_experiences = []
+                for qt in weak_types[:3]:
+                    exps = experience_store.query(
+                        question_type=qt,
+                        was_correct=False,
+                        max_count=3,
+                    )
+                    relevant_experiences.extend(exps)
+                # Also get recent failures regardless of type
+                if not relevant_experiences:
+                    relevant_experiences = experience_store.query(
+                        was_correct=False,
+                        max_count=5,
+                    )
+                if relevant_experiences:
+                    experience_insights = experience_store.format_for_prompt(
+                        relevant_experiences, max_tokens=800
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to query experience store: {e}")
+
         try:
             refined = self.direction_generator.generate_refine(
                 best_strategy=best_strategy,
                 type_stats=type_win_rates,
                 failures=failures,
+                experience_insights=experience_insights,
             )
             refined.island_id = island.config.name
             return refined
