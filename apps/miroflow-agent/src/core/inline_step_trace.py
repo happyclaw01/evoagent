@@ -300,10 +300,16 @@ TOOL_ACTION_MAP: Dict[str, str] = {
     "searching_with_google": "search",
     "duckduckgo_search": "search",
     "searching_with_sougou": "search",
+    "google_search": "search",
+    "baidu_search": "search",
+    "sougou_search": "search",
+    "serpapi_search": "search",
     # 浏览类
     "browse_webpage": "browse",
     "read_webpage": "browse",
     "reading_content": "browse",
+    "scrape_website": "browse",
+    "jina_scrape": "browse",
     # 代码执行类
     "python_exec": "calculate",
     "code_execution": "calculate",
@@ -323,15 +329,34 @@ def _extract_query(tool_name: str, arguments: dict) -> str:
 
 def _extract_key_info_search(result: Any) -> str:
     """IST-003: 搜索结果取第一条 title + snippet。"""
-    text = str(result)
-    # Try JSON array
+    # Try JSON array directly
     if isinstance(result, list) and result:
         first = result[0]
         if isinstance(first, dict):
             title = first.get("title", "")
             snippet = first.get("snippet", first.get("description", ""))
             return f"{title}: {snippet}"[:80]
-    # Try extracting from text
+    # Try parsing JSON string (ToolManager returns text content)
+    if isinstance(result, str):
+        try:
+            import json as _json
+            parsed = _json.loads(result)
+            # Google search format: {"searchParameters":..., "organic":[...]}
+            if isinstance(parsed, dict) and "organic" in parsed:
+                organic = parsed["organic"]
+                if organic and isinstance(organic[0], dict):
+                    title = organic[0].get("title", "")
+                    snippet = organic[0].get("snippet", organic[0].get("description", ""))
+                    return f"{title}: {snippet}"[:80]
+            # Direct list of results
+            if isinstance(parsed, list) and parsed and isinstance(parsed[0], dict):
+                title = parsed[0].get("title", "")
+                snippet = parsed[0].get("snippet", parsed[0].get("description", ""))
+                return f"{title}: {snippet}"[:80]
+        except (ValueError, TypeError, KeyError):
+            pass
+    # Fallback: first line of text
+    text = str(result)
     lines = text.strip().split("\n")
     return lines[0][:80] if lines else text[:80]
 
@@ -404,8 +429,11 @@ class TracingToolWrapper:
 
         result = await self._tool_manager.execute_tool_call(server_name, tool_name, arguments)
 
-        # 提取 key_info
-        key_info = extract_key_info(action, result)
+        # 提取 key_info — 解包 ToolManager 返回的 {"server_name":..., "result":...} 包装
+        raw_result = result
+        if isinstance(result, dict) and "result" in result:
+            raw_result = result["result"]
+        key_info = extract_key_info(action, raw_result)
 
         # 记录到 collector
         self._collector.record_tool_call(

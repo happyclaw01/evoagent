@@ -530,6 +530,7 @@ async def _run_single_path(
             task_log=task_log,
             tool_definitions=tool_definitions,
             sub_agent_tool_definitions=sub_agent_tool_definitions,
+            trace_collector=trace_collector,
         )
 
         # EA-002: Inject strategy into the orchestrator's prompt generation

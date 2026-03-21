@@ -24,6 +24,7 @@ from ..logging.task_logger import (
     get_utc_plus_8_time,
 )
 from ..utils.parsing_utils import extract_llm_response_text
+from .inline_step_trace import ConclusionExtractor
 from ..utils.prompt_utils import (
     generate_agent_specific_system_prompt,
     generate_agent_summarize_prompt,
@@ -86,6 +87,7 @@ class Orchestrator:
         stream_queue: Optional[Any] = None,
         tool_definitions: Optional[List[Dict[str, Any]]] = None,
         sub_agent_tool_definitions: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+        trace_collector: Optional[Any] = None,
     ):
         self.main_agent_tool_manager = main_agent_tool_manager
         self.sub_agent_tool_managers = sub_agent_tool_managers
@@ -96,6 +98,7 @@ class Orchestrator:
         self.stream_queue = stream_queue
         self.tool_definitions = tool_definitions
         self.sub_agent_tool_definitions = sub_agent_tool_definitions
+        self.trace_collector = trace_collector
         # call this once, then use cache value
         self._list_sub_agent_tools = None
         if sub_agent_tool_managers:
@@ -553,6 +556,19 @@ class Orchestrator:
                 agent_type=sub_agent_name,
             )
 
+            # IST: Record LLM conclusion/confidence and token usage (sub-agent)
+            if self.trace_collector and assistant_response_text:
+                try:
+                    conc, conf = ConclusionExtractor.extract(assistant_response_text)
+                    if conc or conf is not None:
+                        self.trace_collector.record_conclusion(conc, conf)
+                    tokens = self.llm_client.last_call_tokens
+                    total_tok = (tokens.get("prompt_tokens", 0) or 0) + (tokens.get("completion_tokens", 0) or 0)
+                    if total_tok > 0:
+                        self.trace_collector.record_tokens(total_tok)
+                except Exception:
+                    pass
+
             if should_break:
                 self.task_log.log_step(
                     "info",
@@ -1000,6 +1016,19 @@ class Orchestrator:
                 keep_tool_result=keep_tool_result,
                 agent_type="main",
             )
+
+            # IST: Record LLM conclusion/confidence and token usage
+            if self.trace_collector and assistant_response_text:
+                try:
+                    conc, conf = ConclusionExtractor.extract(assistant_response_text)
+                    if conc or conf is not None:
+                        self.trace_collector.record_conclusion(conc, conf)
+                    tokens = self.llm_client.last_call_tokens
+                    total_tok = (tokens.get("prompt_tokens", 0) or 0) + (tokens.get("completion_tokens", 0) or 0)
+                    if total_tok > 0:
+                        self.trace_collector.record_tokens(total_tok)
+                except Exception:
+                    pass  # IST failure must not break execution
 
             # Process LLM response
             if assistant_response_text:

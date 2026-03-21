@@ -90,14 +90,22 @@ class OpenVikingContext:
             return False
         
         try:
-            # Try to import and connect to OpenViking
-            # For now, we'll use a mock connection that falls back gracefully
-            # In production, this would be: self._client = AsyncOpenVikingClient(...)
-            self._connected = True
-            logger.info(f"Connected to OpenViking at {self.server_url}")
-            return True
+            # Health-check: verify the server is actually reachable
+            # trust_env=False bypasses ALL_PROXY/HTTP_PROXY which may block localhost
+            import aiohttp
+            async with aiohttp.ClientSession(trust_env=False) as session:
+                async with session.get(
+                    f"{self.server_url}/health",
+                    timeout=aiohttp.ClientTimeout(total=5),
+                ) as resp:
+                    if resp.status == 200:
+                        self._connected = True
+                        logger.info(f"Connected to OpenViking at {self.server_url}")
+                        return True
+                    else:
+                        raise ConnectionError(f"Health check returned {resp.status}")
         except Exception as e:
-            logger.warning(f"Failed to connect to OpenViking: {e}. Using fallback mode.")
+            logger.warning(f"Failed to connect to OpenViking at {self.server_url}: {e}. Using fallback mode.")
             if self.fallback_mode:
                 self._connected = False
                 return False
