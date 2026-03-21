@@ -122,14 +122,14 @@ Reflector / Evolver 读 L1 (不读原始 log)
 
 | 编号 | 功能名称 | 描述 | 修改文件 | 状态 | 优先级 |
 |------|---------|------|---------|------|--------|
-| **IST-301** | multi_path.py 集成 — Collector 创建 | 每条路径执行前创建 StepTraceCollector | `multi_path.py` | ❌ 待开发 | P0 |
-| **IST-302** | multi_path.py 集成 — Wrapper 包装 | 用 TracingToolWrapper 包装 ToolManager | `multi_path.py` | ❌ 待开发 | P0 |
-| **IST-303** | multi_path.py 集成 — conclusion 提取 | 路径执行完后从 message_history 提取 conclusions | `multi_path.py` | ❌ 待开发 | P0 |
-| **IST-304** | multi_path.py 集成 — digest 保存 | finalize() 后保存 PathDigest 和 TaskDigestBundle | `multi_path.py` | ❌ 待开发 | P0 |
-| **IST-305** | reflector.py 改造 — 读 digest | 反思时优先读 L1 digest，不读原始 log | `reflector.py` | ❌ 待开发 | P0 |
-| **IST-306** | reflector.py 改造 — 降级兼容 | digest 不存在时自动降级读原始 step_logs（兼容旧数据） | `reflector.py` | ❌ 待开发 | P1 |
-| **IST-307** | reflector.py 改造 — 新版 prompt | 针对结构化 trace 优化的反思 prompt 模板 | `reflector.py` | ❌ 待开发 | P1 |
-| **IST-308** | system prompt 注入点 | 在 `_build_system_prompt()` 中追加 TRACE_INSTRUCTION | `multi_path.py` | ❌ 待开发 | P0 |
+| **IST-301** | multi_path.py 集成 — Collector 创建 | 每条路径执行前创建 StepTraceCollector | `multi_path.py` | ✅ 待开发 | P0 |
+| **IST-302** | multi_path.py 集成 — Wrapper 包装 | 用 TracingToolWrapper 包装 ToolManager | `multi_path.py` | ✅ 待开发 | P0 |
+| **IST-303** | multi_path.py 集成 — conclusion 提取 | 路径执行完后从 message_history 提取 conclusions | `multi_path.py` | ✅ 待开发 | P0 |
+| **IST-304** | multi_path.py 集成 — digest 保存 | finalize() 后保存 PathDigest 和 TaskDigestBundle | `multi_path.py` | ✅ 待开发 | P0 |
+| **IST-305** | reflector.py 改造 — 读 digest | 反思时优先读 L1 digest，不读原始 log | `reflector.py` | ✅ 待开发 | P0 |
+| **IST-306** | reflector.py 改造 — 降级兼容 | digest 不存在时自动降级读原始 step_logs（兼容旧数据） | `reflector.py` | ✅ 待开发 | P1 |
+| **IST-307** | reflector.py 改造 — 新版 prompt | 针对结构化 trace 优化的反思 prompt 模板 | `reflector.py` | ✅ 待开发 | P1 |
+| **IST-308** | system prompt 注入点 | 在 `_build_system_prompt()` 中追加 TRACE_INSTRUCTION | `multi_path.py` | ✅ 待开发 | P0 |
 
 ### 3.5 测试与评估
 
@@ -143,11 +143,11 @@ Reflector / Evolver 读 L1 (不读原始 log)
 | **IST-406** | 单元测试 — DigestStore 读写 | 保存 / 加载 / 层级过滤 / 文件不存在 | ✅ 已完成 | P0 |
 | **IST-407** | 集成测试 — 完整单路径 trace | 真实工具执行 → 生成 PathDigest → 验证内容 | ✅ 已完成 | P1 |
 | **IST-408** | 集成测试 — 多路径 bundle | 多路径执行 → TaskDigestBundle → 对比视图 | ✅ 已完成 | P1 |
-| **IST-409** | 集成测试 — Reflector 读 digest | Reflector 从 digest 构建反思输入 | ❌ 待开发 | P1 |
-| **IST-410** | 集成测试 — Reflector 降级 | digest 不存在时走旧路径读原始 log | ❌ 待开发 | P1 |
+| **IST-409** | 集成测试 — Reflector 读 digest | Reflector 从 digest 构建反思输入 | ✅ 待开发 | P1 |
+| **IST-410** | 集成测试 — Reflector 降级 | digest 不存在时走旧路径读原始 log | ✅ 待开发 | P1 |
 | **IST-411** | 回归测试 — 现有测试全通过 | 加入 IST 后 37 个已有单元测试不受影响 | ✅ 已完成 | P0 |
 | **IST-412** | 回归测试 — Agent 答案不变 | TracingWrapper 不影响 Agent 的最终输出 | ✅ 已完成 | P0 |
-| **IST-413** | 回归测试 — step_logs 仍生成 | 原始 step_logs 格式不变，仍然写入 | ❌ 待开发 | P0 |
+| **IST-413** | 回归测试 — step_logs 仍生成 | 原始 step_logs 格式不变，仍然写入 | ✅ 待开发 | P0 |
 | **IST-414** | 回归测试 — 零额外 API 调用 | 加入 IST 后无新增 LLM API 调用 | ✅ 已完成 | P0 |
 | **IST-415** | 性能测试 — token 压缩率 | 反思输入 token 对比：旧 vs 新 | ⏭️ 需集成后测 | P1 |
 | **IST-416** | 性能测试 — Wrapper 延迟 | TracingToolWrapper 增加的延迟 ≤5ms/step | ⏭️ 需集成后测 | P2 |

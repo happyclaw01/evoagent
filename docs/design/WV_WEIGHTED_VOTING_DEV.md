@@ -119,14 +119,14 @@
 
 | 编号 | 功能名称 | 描述 | 修改文件 | 状态 | 优先级 |
 |------|---------|------|---------|------|--------|
-| **WV-301** | multi_path.py — 投票函数改造 | `_vote_best_answer()` 替换为加权版本 `weighted_vote()` | `multi_path.py` | ❌ 待开发 | P0 |
-| **WV-302** | multi_path.py — 结果记录调用 | 任务结束后调用 `record_result(strategy_id, island_id, question_type, won, adopted)` | `multi_path.py` | ❌ 待开发 | P0 |
-| **WV-303** | multi_path.py — system prompt 追加 | `_build_system_prompt()` 中追加结构化输出要求（与 IST trace 要求合并） | `multi_path.py` | ❌ 待开发 | P0 |
-| **WV-304** | voter.py 适配 | 现有投票逻辑适配新的加权输入格式（如已独立存在） | `voter.py` (如存在) | ❌ 待开发 | P1 |
-| **WV-305** | judge.py 适配 | Judge prompt 模板更新：增加 confidence + evidence + risk 输入 | `judge.py` (如存在) / `multi_path.py` | ❌ 待开发 | P0 |
-| **WV-306** | StrategyIsland.elite_score 对接 | `get_fitness()` 返回值供 `StrategyIsland` 的 `elite_score` 计算使用 | `strategy_island.py` | ❌ 待开发 | P1 |
-| **WV-307** | PathDigest 扩展 — evidence/risk 字段 | 在 IST 的 PathDigest 中增加 evidence: List[str] 和 risk: str 字段 | `step_trace.py` / IST 模块 | ❌ 待开发 | P1 |
-| **WV-308** | 日志增强 | 投票过程记录：各路径权重、答案分布、最终选择方法 | `multi_path.py` | ❌ 待开发 | P1 |
+| **WV-301** | multi_path.py — 投票函数改造 | `_vote_best_answer()` 替换为加权版本 `weighted_vote()` | `multi_path.py` | ✅ 待开发 | P0 |
+| **WV-302** | multi_path.py — 结果记录调用 | 任务结束后调用 `record_result(strategy_id, island_id, question_type, won, adopted)` | `multi_path.py` | ✅ 待开发 | P0 |
+| **WV-303** | multi_path.py — system prompt 追加 | `_build_system_prompt()` 中追加结构化输出要求（与 IST trace 要求合并） | `multi_path.py` | ✅ 待开发 | P0 |
+| **WV-304** | voter.py 适配 | 现有投票逻辑适配新的加权输入格式（如已独立存在） | `voter.py` (如存在) | ✅ 待开发 | P1 |
+| **WV-305** | judge.py 适配 | Judge prompt 模板更新：增加 confidence + evidence + risk 输入 | `judge.py` (如存在) / `multi_path.py` | ✅ 待开发 | P0 |
+| **WV-306** | StrategyIsland.elite_score 对接 | `get_fitness()` 返回值供 `StrategyIsland` 的 `elite_score` 计算使用 | `strategy_island.py` | ✅ 待开发 | P1 |
+| **WV-307** | PathDigest 扩展 — evidence/risk 字段 | 在 IST 的 PathDigest 中增加 evidence: List[str] 和 risk: str 字段 | `step_trace.py` / IST 模块 | ✅ 待开发 | P1 |
+| **WV-308** | 日志增强 | 投票过程记录：各路径权重、答案分布、最终选择方法 | `multi_path.py` | ✅ 待开发 | P1 |
 
 ### 2.5 第五层：测试层 (Testing)
 

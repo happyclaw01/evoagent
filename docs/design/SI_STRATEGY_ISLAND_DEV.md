@@ -118,9 +118,9 @@ multi_path.py → 5 条探索路径（路径数 = 岛数）
 
 | 编号 | 功能 | 描述 | 优先级 | 状态 |
 |------|------|------|--------|------|
-| **SI-401** | multi_path.py 改造 | `_select_strategies()` 改为 `IslandPool.sample_all()` | P0 | ❌ |
-| **SI-402** | 路径数动态化 | `路径数 = 岛数`（不再硬编码） | P0 | ❌ |
-| **SI-403** | openviking_context.py 改造 | fallback 改为岛/策略结构 | P1 | ❌ |
+| **SI-401** | multi_path.py 改造 | `_select_strategies()` 改为 `IslandPool.sample_all()` | P0 | ✅ |
+| **SI-402** | 路径数动态化 | `路径数 = 岛数`（不再硬编码） | P0 | ✅ |
+| **SI-403** | openviking_context.py 改造 | fallback 改为岛/策略结构 | P1 | ✅ |
 
 ### 2.6 测试
 

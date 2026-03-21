@@ -82,10 +82,10 @@
 
 | 代号 | 模块名称 | 详细开发文档 | 覆盖内容 | 状态 | 优先级 |
 |------|---------|-------------|---------|------|--------|
-| **QP** | Question Parser + 策略定义 + 编译器 | `QP_QUESTION_PARSER_DEV.md` | 题目解析、8维 StrategyDefinition、策略编译器、策略距离 | ❌ 待开发 | P0 |
-| **SI** | Strategy Island | `SI_STRATEGY_ISLAND_DEV.md` | 策略岛、岛池、elite_score、淘汰、采样、OpenViking 存储 | ❌ 待开发 | P0 |
-| **EE** | Evolution Engine | `EE_EVOLUTION_ENGINE_DEV.md` | refine/diverge 进化、岛间迁移、动态开岛 | ❌ 待开发 | P1 |
-| **WV** | Weighted Voting | `WV_WEIGHTED_VOTING_DEV.md` | 置信度结构化输出、加权投票、题型条件化评估、战绩记录 | ❌ 待开发 | P1 |
+| **QP** | Question Parser + 策略定义 + 编译器 | `QP_QUESTION_PARSER_DEV.md` | 题目解析、8维 StrategyDefinition、策略编译器、策略距离 | ✅ 完成 | P0 |
+| **SI** | Strategy Island | `SI_STRATEGY_ISLAND_DEV.md` | 策略岛、岛池、elite_score、淘汰、采样、OpenViking 存储 | ✅ 完成 | P0 |
+| **EE** | Evolution Engine | `EE_EVOLUTION_ENGINE_DEV.md` | refine/diverge 进化、岛间迁移、动态开岛 | ✅ 完成 | P1 |
+| **WV** | Weighted Voting | `WV_WEIGHTED_VOTING_DEV.md` | 置信度结构化输出、加权投票、题型条件化评估、战绩记录 | ✅ 完成 | P1 |
 | **IST** | Inline Step Trace | `INLINE_STEP_TRACE_DEV.md` | 运行时每步留痕、自动生成 L0/L1/L2 摘要、DigestStore | ✅ 已完成 | P0 |
 
 ### 3.2 依赖关系图
@@ -123,45 +123,45 @@ SE-xxx 是总纲级编号，每个对应子模块文档里的详细编号。
 
 | SE 编号 | 功能名称 | 子模块详细编号 | 描述 | 状态 | 优先级 |
 |---------|---------|--------------|------|------|--------|
-| **SE-001** | 题目解析器 | QP-001 | LLM 单次调用解析题型/实体/时间窗/criteria | ❌ 待开发 | P0 |
-| **SE-002** | ParsedQuestion 数据结构 | QP-002 | question_type, key_entities, time_window, resolution_criteria, difficulty_hint | ❌ 待开发 | P0 |
-| **SE-003** | 8 维策略定义 | QP-003 | StrategyDefinition: Hi/Qi/Ei/Ri/Ui/Ai/Ti + max_turns | ❌ 待开发 | P0 |
-| **SE-004** | 策略编译器 | QP-004 | 8 维 → prompt_suffix，TEMPLATES 映射 | ❌ 待开发 | P0 |
-| **SE-005** | 策略距离度量 | QP-005 | 维度差异数 / 7，归一化 0-1 | ❌ 待开发 | P1 |
-| **SE-006** | 5 个种子策略 | QP-006 | 信息追踪/机制分析/历史类比/市场信号/对抗验证 初始定义 | ❌ 待开发 | P0 |
+| **SE-001** | 题目解析器 | QP-001 | LLM 单次调用解析题型/实体/时间窗/criteria | ✅ 完成 | P0 |
+| **SE-002** | ParsedQuestion 数据结构 | QP-002 | question_type, key_entities, time_window, resolution_criteria, difficulty_hint | ✅ 完成 | P0 |
+| **SE-003** | 8 维策略定义 | QP-003 | StrategyDefinition: Hi/Qi/Ei/Ri/Ui/Ai/Ti + max_turns | ✅ 完成 | P0 |
+| **SE-004** | 策略编译器 | QP-004 | 8 维 → prompt_suffix，TEMPLATES 映射 | ✅ 完成 | P0 |
+| **SE-005** | 策略距离度量 | QP-005 | 维度差异数 / 7，归一化 0-1 | ✅ 完成 | P1 |
+| **SE-006** | 5 个种子策略 | QP-006 | 信息追踪/机制分析/历史类比/市场信号/对抗验证 初始定义 | ✅ 完成 | P0 |
 
 ### 4.2 SI — Strategy Island
 
 | SE 编号 | 功能名称 | 子模块详细编号 | 描述 | 状态 | 优先级 |
 |---------|---------|--------------|------|------|--------|
-| **SE-010** | 单岛结构 | SI-001 | IslandConfig: perspective, max_size, elite_ratio, fitness/novelty_weight | ❌ 待开发 | P0 |
-| **SE-011** | 岛内策略池 | SI-002 | 策略存储、CRUD、持久化（JSON / OpenViking） | ❌ 待开发 | P0 |
-| **SE-012** | Elite Score 计算 | SI-003 | fitness_weight × fitness_percentile + novelty_weight × novelty_percentile | ❌ 待开发 | P0 |
-| **SE-013** | 确定性拥挤淘汰 | SI-004 | 岛满时：找最近似非精英，新策略 elite_score 更高则替换 | ❌ 待开发 | P1 |
-| **SE-014** | 岛内策略采样 | SI-005 | 根据 question_type 选该题型上胜率最优的策略 | ❌ 待开发 | P0 |
-| **SE-015** | 多岛管理器 IslandPool | SI-006 | 管理所有岛的生命周期，提供全局 API | ❌ 待开发 | P0 |
-| **SE-016** | OpenViking 存储集成 | SI-007 | L0/L1/L2 分层存储，无 Server 降级为本地 JSON | ❌ 待开发 | P1 |
-| **SE-017** | 初始 5 岛配置 | SI-008 | 信息追踪/机制分析/历史类比/市场信号/对抗验证 | ❌ 待开发 | P0 |
+| **SE-010** | 单岛结构 | SI-001 | IslandConfig: perspective, max_size, elite_ratio, fitness/novelty_weight | ✅ 完成 | P0 |
+| **SE-011** | 岛内策略池 | SI-002 | 策略存储、CRUD、持久化（JSON / OpenViking） | ✅ 完成 | P0 |
+| **SE-012** | Elite Score 计算 | SI-003 | fitness_weight × fitness_percentile + novelty_weight × novelty_percentile | ✅ 完成 | P0 |
+| **SE-013** | 确定性拥挤淘汰 | SI-004 | 岛满时：找最近似非精英，新策略 elite_score 更高则替换 | ✅ 完成 | P1 |
+| **SE-014** | 岛内策略采样 | SI-005 | 根据 question_type 选该题型上胜率最优的策略 | ✅ 完成 | P0 |
+| **SE-015** | 多岛管理器 IslandPool | SI-006 | 管理所有岛的生命周期，提供全局 API | ✅ 完成 | P0 |
+| **SE-016** | OpenViking 存储集成 | SI-007 | L0/L1/L2 分层存储，无 Server 降级为本地 JSON | ✅ 完成 | P1 |
+| **SE-017** | 初始 5 岛配置 | SI-008 | 信息追踪/机制分析/历史类比/市场信号/对抗验证 | ✅ 完成 | P0 |
 
 ### 4.3 EE — Evolution Engine
 
 | SE 编号 | 功能名称 | 子模块详细编号 | 描述 | 状态 | 优先级 |
 |---------|---------|--------------|------|------|--------|
-| **SE-020** | Refine 操作 | EE-001 | 拿岛内 top 策略，LLM 微调 1-2 维 | ❌ 待开发 | P0 |
-| **SE-021** | Diverge 操作 | EE-002 | 在岛视角内，LLM 设计全新变种（≥3 维不同） | ❌ 待开发 | P0 |
-| **SE-022** | 每轮全岛进化调度 | EE-003 | 一轮题结束后，所有岛各 1 refine + 1 diverge = 2 新策略/岛 | ❌ 待开发 | P0 |
-| **SE-023** | 岛间环形迁移 | EE-004 | top 策略复制到下一岛，距离 < 0.3 不迁移 | ❌ 待开发 | P1 |
-| **SE-024** | 动态开岛检测 | EE-005 | 某题型全岛 best_rate < 0.4 且 samples ≥ 5 → 触发 | ❌ 待开发 | P1 |
-| **SE-025** | 动态开岛执行 | EE-006 | LLM 生成新视角 + 初始策略 → spawn 新岛 | ❌ 待开发 | P1 |
+| **SE-020** | Refine 操作 | EE-001 | 拿岛内 top 策略，LLM 微调 1-2 维 | ✅ 完成 | P0 |
+| **SE-021** | Diverge 操作 | EE-002 | 在岛视角内，LLM 设计全新变种（≥3 维不同） | ✅ 完成 | P0 |
+| **SE-022** | 每轮全岛进化调度 | EE-003 | 一轮题结束后，所有岛各 1 refine + 1 diverge = 2 新策略/岛 | ✅ 完成 | P0 |
+| **SE-023** | 岛间环形迁移 | EE-004 | top 策略复制到下一岛，距离 < 0.3 不迁移 | ✅ 完成 | P1 |
+| **SE-024** | 动态开岛检测 | EE-005 | 某题型全岛 best_rate < 0.4 且 samples ≥ 5 → 触发 | ✅ 完成 | P1 |
+| **SE-025** | 动态开岛执行 | EE-006 | LLM 生成新视角 + 初始策略 → spawn 新岛 | ✅ 完成 | P1 |
 
 ### 4.4 WV — Weighted Voting
 
 | SE 编号 | 功能名称 | 子模块详细编号 | 描述 | 状态 | 优先级 |
 |---------|---------|--------------|------|------|--------|
-| **SE-030** | 结构化输出规范 | WV-001 | 答案 + confidence(high/medium/low) + 关键证据 + 风险 | ❌ 待开发 | P0 |
-| **SE-031** | 加权投票机制 | WV-002 | high=3票, medium=2票, low=1票；一致直接采用，分裂 Judge | ❌ 待开发 | P0 |
-| **SE-032** | 题型条件化战绩记录 | WV-003 | 按 question_type 拆分 wins/total/rate | ❌ 待开发 | P0 |
-| **SE-033** | Fitness 条件化计算 | WV-004 | 有题型数据(≥3样本)用题型胜率，否则退回全局 | ❌ 待开发 | P1 |
+| **SE-030** | 结构化输出规范 | WV-001 | 答案 + confidence(high/medium/low) + 关键证据 + 风险 | ✅ 完成 | P0 |
+| **SE-031** | 加权投票机制 | WV-002 | high=3票, medium=2票, low=1票；一致直接采用，分裂 Judge | ✅ 完成 | P0 |
+| **SE-032** | 题型条件化战绩记录 | WV-003 | 按 question_type 拆分 wins/total/rate | ✅ 完成 | P0 |
+| **SE-033** | Fitness 条件化计算 | WV-004 | 有题型数据(≥3样本)用题型胜率，否则退回全局 | ✅ 完成 | P1 |
 
 ### 4.5 IST — Inline Step Trace（✅ 已完成）
 

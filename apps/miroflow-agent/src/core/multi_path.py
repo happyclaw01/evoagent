@@ -37,7 +37,33 @@ from .seed_strategies import SEED_STRATEGIES
 from .strategy_definition import StrategyDefinition
 
 # SI-401: Strategy Island integration
-from .strategy_island import IslandPool
+from .strategy_island import IslandPool, StrategyIsland
+
+# EE-501: Evolution Engine integration
+from .evolution_engine import IslandEvolver, DirectionGenerator, EvolutionConfig
+
+# WV-301~308: Weighted Voting integration
+from .weighted_voting import (
+    weighted_vote,
+    PathVoteInput,
+    VoteResult,
+    record_result as wv_record_result,
+    StrategyMetrics,
+    parse_structured_output,
+    STRUCTURED_OUTPUT_INSTRUCTION,
+    COMBINED_TRACE_AND_OUTPUT_INSTRUCTION,
+)
+
+# IST-301~308: Inline Step Trace integration
+from .inline_step_trace import (
+    TracingToolWrapper,
+    StepTraceCollector,
+    DigestStore,
+    PathDigest,
+    TaskDigestBundle,
+    ConclusionExtractor,
+    TRACE_INSTRUCTION,
+)
 
 # EA-307: OpenViking Context
 from .openviking_context import OpenVikingContext, Discovery
@@ -421,6 +447,10 @@ async def _run_single_path(
     max_turns: Optional[int] = None,
     # EA-307: OpenViking context for cross-path sharing
     viking_context: Optional[OpenVikingContext] = None,
+    # IST-301: StepTraceCollector for this path (None when IST disabled)
+    trace_collector: Optional[StepTraceCollector] = None,
+    # IST-304: DigestStore for saving path digests
+    digest_store: Optional[DigestStore] = None,
 ) -> Tuple[str, str, str, str, Dict]:
     """
     EA-001: Run a single agent path with a specific strategy.
@@ -471,6 +501,16 @@ async def _run_single_path(
         for sub_tm in sub_agent_tool_managers.values():
             sub_tm.set_task_log(task_log)
 
+    # IST-301/302: Wrap tool manager with TracingToolWrapper when IST is enabled
+    effective_tool_manager = main_agent_tool_manager
+    if trace_collector is not None:
+        try:
+            effective_tool_manager = TracingToolWrapper(main_agent_tool_manager, trace_collector)
+        except Exception as e:
+            # IST-308: Fallback — IST failure doesn't break path execution
+            logger.warning(f"IST TracingToolWrapper init failed for path {path_index}, continuing without: {e}")
+            effective_tool_manager = main_agent_tool_manager
+
     try:
         # Create LLM client for this path
         random_uuid = str(uuid.uuid4())
@@ -479,7 +519,7 @@ async def _run_single_path(
 
         # Create orchestrator with strategy-augmented prompt
         orchestrator = Orchestrator(
-            main_agent_tool_manager=main_agent_tool_manager,
+            main_agent_tool_manager=effective_tool_manager,
             sub_agent_tool_managers=sub_agent_tool_managers,
             llm_client=llm_client,
             output_formatter=output_formatter,
@@ -522,9 +562,16 @@ async def _run_single_path(
             except Exception as e:
                 logger.warning(f"OpenViking context loading failed for path {path_index}: {e}")
 
+        # IST-302 / WV-303: Build IST trace + structured output instruction suffix
+        ist_suffix = ""
+        qp_cfg_path = cfg.get("question_parser", {}) if cfg else {}
+        if qp_cfg_path.get("enabled", False):
+            # When QP is enabled, inject combined trace + structured output instruction
+            ist_suffix = COMBINED_TRACE_AND_OUTPUT_INSTRUCTION
+        
         def strategy_augmented_prompt(date, mcp_servers):
             base_prompt = original_generate(date=date, mcp_servers=mcp_servers)
-            return base_prompt + strategy["prompt_suffix"] + viking_suffix
+            return base_prompt + strategy["prompt_suffix"] + viking_suffix + ist_suffix
 
         llm_client.generate_agent_system_prompt = strategy_augmented_prompt
 
@@ -547,6 +594,23 @@ async def _run_single_path(
         await stream.end(final_answer=final_boxed_answer, status="success")
 
         llm_client.close()
+
+        # IST-303/304: Finalize trace collector and save digest
+        path_digest = None
+        if trace_collector is not None:
+            try:
+                # Parse structured output for confidence
+                structured = parse_structured_output(final_boxed_answer or final_summary or "")
+                path_digest = trace_collector.finalize(
+                    answer=final_boxed_answer,
+                    final_confidence=structured.confidence,
+                )
+                # IST-304: Save via DigestStore
+                if digest_store is not None:
+                    await digest_store.save_path_digest(path_digest)
+            except Exception as e:
+                # IST-308: Fallback — IST failure doesn't break path execution
+                logger.warning(f"IST finalize/save failed for path {path_index}: {e}")
 
         task_log.final_boxed_answer = final_boxed_answer
         task_log.status = "success"
@@ -589,6 +653,14 @@ async def _run_single_path(
             "output_tokens": output_tokens,
             "tool_calls": tool_calls,
             "duration": round(elapsed, 2),
+            # IST-303: Path digest reference
+            "_path_digest": path_digest,
+            # WV-302: Extract structured output for voting weights
+            "_structured_output": parse_structured_output(
+                final_boxed_answer or final_summary or ""
+            ) if qp_cfg_path.get("enabled", False) else None,
+            # SI: Strategy definition reference for record_result
+            "_strategy_def": strategy.get("_strategy_def"),
         }
 
         # EA-307: Save result and share discoveries via OpenViking
@@ -848,6 +920,20 @@ async def execute_multi_path_pipeline(
     if strategies is None:
         strategies = _select_strategies(cfg, task_description, num_paths, parsed_question)
 
+    # SI-402: When QP enabled, path count becomes dynamic (= number of islands/strategies)
+    if qp_cfg.get("enabled", False) and parsed_question is not None:
+        num_paths = len(strategies)
+
+    # IST-307: Feature flag controls IST on/off
+    ist_enabled = qp_cfg.get("enabled", False)
+    digest_store = None
+    if ist_enabled:
+        try:
+            digest_store = DigestStore(base_dir=str(Path(log_dir) / "digests"))
+        except Exception as e:
+            logger.warning(f"DigestStore init failed: {e}")
+            digest_store = None
+
     # EA-307: Initialize OpenViking context for cross-path sharing
     viking_context = None
     ov_cfg = OmegaConf.to_container(cfg, resolve=True) if cfg else {}
@@ -976,6 +1062,28 @@ async def execute_multi_path_pipeline(
                 sub_tms[sub_agent] = ToolManager(sub_mcp_configs, tool_blacklist=sub_blacklist)
         path_sub_managers.append(sub_tms)
 
+    # IST-301: Create trace collectors for each path (when IST enabled)
+    trace_collectors: List[Optional[StepTraceCollector]] = []
+    for i, strategy in enumerate(strategies):
+        if ist_enabled:
+            try:
+                strategy_name = strategy.get("name", f"path_{i}")
+                island_id = strategy.get("_strategy_def", None)
+                island_id_str = getattr(island_id, "island_id", None) if island_id else None
+                collector = StepTraceCollector(
+                    task_id=task_id,
+                    path_index=i,
+                    island_id=island_id_str,
+                    strategy_name=strategy_name,
+                )
+                trace_collectors.append(collector)
+            except Exception as e:
+                # IST-308: Fallback
+                logger.warning(f"StepTraceCollector creation failed for path {i}: {e}")
+                trace_collectors.append(None)
+        else:
+            trace_collectors.append(None)
+
     # EA-012: Create wrapped tasks with retry logic
     tasks = []
     for i, strategy in enumerate(strategies):
@@ -1000,6 +1108,8 @@ async def execute_multi_path_pipeline(
                     sub_agent_tool_definitions=sub_agent_tool_definitions,
                     max_turns=max_trns,
                     viking_context=viking_context,
+                    trace_collector=trace_collectors[idx],
+                    digest_store=digest_store,
                 )
                 # EA-012: Check for retryable failure
                 if len(result) > 4 and isinstance(result[4], dict):
@@ -1068,10 +1178,101 @@ async def execute_multi_path_pipeline(
             f"Strategy: {r[3]} | Status: {r[4].get('status')} | Answer: {r[1][:200]}",
         )
 
-    # Vote for the best answer
-    best_summary, best_answer, best_log_path = await _vote_best_answer(
-        processed_results, task_description, cfg, master_log
-    )
+    # WV-301/307: Vote for the best answer
+    # When QP enabled, use weighted_vote(); otherwise use original _vote_best_answer()
+    vote_result: Optional[VoteResult] = None
+    if qp_cfg.get("enabled", False):
+        try:
+            # WV-302: Extract confidence from path results for voting weights
+            vote_inputs: List[PathVoteInput] = []
+            for i, r in enumerate(processed_results):
+                if r is None or r[4].get("status") != "success" or not r[1].strip():
+                    continue
+                structured = r[4].get("_structured_output")
+                confidence = "medium"
+                evidence: List[str] = []
+                risk = ""
+                if structured is not None:
+                    confidence = structured.confidence
+                    evidence = structured.evidence
+                    risk = structured.risk
+                vote_inputs.append(PathVoteInput(
+                    path_index=i,
+                    answer=r[1],
+                    confidence=confidence,
+                    strategy_name=r[3],
+                    summary=r[0][:2000] if r[0] else "",
+                    evidence=evidence,
+                    risk=risk,
+                ))
+
+            if vote_inputs:
+                # WV-305: LLM Judge integration for split votes
+                async def _judge_callable(prompt: str) -> str:
+                    judge_client = ClientFactory(
+                        task_id=f"judge-{uuid.uuid4()}", cfg=cfg, task_log=master_log
+                    )
+                    msg_history = [{"role": "user", "content": prompt}]
+                    response, _ = await judge_client.create_message(
+                        system_prompt="You are an impartial judge evaluating answer quality.",
+                        message_history=msg_history,
+                        tool_definitions=[],
+                        keep_tool_result=-1,
+                        step_id=0,
+                        task_log=master_log,
+                        agent_type="judge",
+                    )
+                    judge_client.close()
+                    from ..utils.parsing_utils import extract_llm_response_text
+                    return extract_llm_response_text(str(response)) or str(response)
+
+                # WV-304: Pass question_type context through voting pipeline
+                vote_result = await weighted_vote(
+                    inputs=vote_inputs,
+                    task_description=task_description,
+                    judge_callable=_judge_callable,
+                )
+
+                # WV-306: VoteResult metadata saved to task log
+                master_log.log_step(
+                    "info",
+                    "MultiPath | WeightedVote",
+                    f"Method: {vote_result.method}, Winner: path {vote_result.winner_path_index} "
+                    f"({vote_result.winner_strategy}), Consensus: {vote_result.consensus_ratio:.2f}, "
+                    f"Judge used: {vote_result.judge_used}",
+                )
+                if vote_result.judge_reason:
+                    master_log.log_step(
+                        "info", "MultiPath | Judge Reason", vote_result.judge_reason[:500]
+                    )
+
+                # Find the full result tuple for the winner
+                winner_idx = vote_result.winner_path_index
+                if 0 <= winner_idx < len(processed_results) and processed_results[winner_idx] is not None:
+                    best_summary = processed_results[winner_idx][0]
+                    best_answer = vote_result.winner_answer
+                    best_log_path = processed_results[winner_idx][2]
+                else:
+                    best_summary, best_answer, best_log_path = await _vote_best_answer(
+                        processed_results, task_description, cfg, master_log
+                    )
+            else:
+                # WV-308: No valid inputs for weighted vote, fall back
+                best_summary, best_answer, best_log_path = await _vote_best_answer(
+                    processed_results, task_description, cfg, master_log
+                )
+        except Exception as e:
+            # WV-308: Error handling — voting failure falls back to original logic
+            logger.warning(f"Weighted voting failed, falling back to original: {e}")
+            master_log.log_step("warning", "MultiPath | WeightedVote Error", str(e))
+            best_summary, best_answer, best_log_path = await _vote_best_answer(
+                processed_results, task_description, cfg, master_log
+            )
+    else:
+        # WV-307: Backward compatibility — disabled flag uses original aggregation
+        best_summary, best_answer, best_log_path = await _vote_best_answer(
+            processed_results, task_description, cfg, master_log
+        )
 
     # EA-304: Track costs
     cost_tracker = CostTracker(log_dir=log_dir)
@@ -1115,6 +1316,113 @@ async def execute_multi_path_pipeline(
     
     # Add cost info to master log
     master_log.cost_info = cost_summary.to_dict()
+
+    # IST-304: Save TaskDigestBundle (aggregate all path digests)
+    if ist_enabled and digest_store is not None:
+        try:
+            path_digests = []
+            for r in processed_results:
+                if r is not None and isinstance(r[4], dict):
+                    pd = r[4].get("_path_digest")
+                    if pd is not None:
+                        path_digests.append(pd)
+            if path_digests:
+                bundle = TaskDigestBundle(
+                    task_id=task_id,
+                    question=task_description,
+                    question_type=parsed_question.question_type if parsed_question else None,
+                    ground_truth=str(ground_truth) if ground_truth else None,
+                    path_digests=path_digests,
+                    voted_answer=best_answer,
+                    vote_method=vote_result.method if vote_result else "majority",
+                )
+                await digest_store.save_task_bundle(bundle)
+        except Exception as e:
+            logger.warning(f"TaskDigestBundle save failed: {e}")
+
+    # WV-303: Record win/loss results back to StrategyIsland after ground truth available
+    if qp_cfg.get("enabled", False) and parsed_question is not None:
+        try:
+            pool = IslandPool()
+            question_type = parsed_question.question_type
+            for i, r in enumerate(processed_results):
+                if r is None or not isinstance(r[4], dict):
+                    continue
+                strategy_def = r[4].get("_strategy_def")
+                if strategy_def is None:
+                    continue
+                island_id = getattr(strategy_def, "island_id", None)
+                if not island_id:
+                    continue
+                # Determine if this path won (its answer was selected)
+                won = (r[1].strip().lower() == best_answer.strip().lower()) if r[1] and best_answer else False
+                pool.record_result(island_id, strategy_def, question_type, won)
+            master_log.log_step(
+                "info", "MultiPath | Strategy Records",
+                f"Recorded results for {len(processed_results)} paths, question_type={question_type}",
+            )
+        except Exception as e:
+            logger.warning(f"Strategy result recording failed: {e}")
+
+    # EE-501: Wire evolution_engine into multi_path.py
+    # After a round completes, trigger IslandEvolver.evolve_round() when question_parser enabled
+    if qp_cfg.get("enabled", False) and parsed_question is not None:
+        try:
+            pool = IslandPool()
+            # Build minimal round_stats from current results
+            round_stats: Dict[str, Any] = {
+                "round_number": 1,
+                "per_island": {},
+                "per_question_type": {},
+            }
+            qt = parsed_question.question_type
+            # Aggregate per-island stats
+            for island in pool.islands:
+                island_name = island.config.name
+                best_strat = island.sample(qt)
+                type_win_rates: Dict[str, float] = {}
+                for rec in island._records:
+                    for qtype, attempts in rec.attempts.items():
+                        wins = rec.wins.get(qtype, 0)
+                        type_win_rates[qtype] = wins / attempts if attempts > 0 else 0.0
+                round_stats["per_island"][island_name] = {
+                    "best_strategy": best_strat,
+                    "type_win_rates": type_win_rates,
+                    "failures": [],
+                }
+            # Per-question-type stats
+            total_attempts = sum(
+                1 for r in processed_results
+                if r is not None and isinstance(r[4], dict) and r[4].get("status") == "success"
+            )
+            correct_count = sum(
+                1 for r in processed_results
+                if r is not None and isinstance(r[4], dict) and r[4].get("status") == "success"
+                and r[1] and best_answer and r[1].strip().lower() == best_answer.strip().lower()
+            )
+            best_rate = correct_count / total_attempts if total_attempts > 0 else 0.0
+            round_stats["per_question_type"][qt] = {
+                "best_win_rate": best_rate,
+                "samples": total_attempts,
+            }
+
+            # Create a no-op LLM call (evolution uses LLM but we don't want to call it here
+            # unless we have a real client — defer actual LLM evolution to batch mode)
+            # For now, just run migration (no LLM needed)
+            def _noop_llm(prompt: str) -> str:
+                return "{}"
+
+            direction_gen = DirectionGenerator(llm_call=_noop_llm)
+            evolver = IslandEvolver(direction_gen)
+            report = evolver.evolve_round(pool, round_stats)
+            master_log.log_step(
+                "info", "MultiPath | Evolution",
+                f"Evolution round: refined={len(report.refined_strategies)}, "
+                f"diverged={len(report.diverged_strategies)}, "
+                f"migrations={len(report.migrations)}",
+            )
+        except Exception as e:
+            logger.warning(f"Evolution engine trigger failed: {e}")
 
     master_log.log_step(
         "info",

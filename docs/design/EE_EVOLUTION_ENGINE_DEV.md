@@ -120,7 +120,7 @@
 
 | 编号 | 功能 | 描述 | 优先级 | 状态 |
 |------|------|------|--------|------|
-| **EE-501** | main_multipath.py 集成 | 在主循环中，每处理完一批题后调用 `island_evolver.evolve_round()`，将 `EvolutionReport` 写入日志 | **P0** | ❌ (deferred — requires runtime pipeline changes) |
+| **EE-501** | main_multipath.py 集成 | 在主循环中，每处理完一批题后调用 `island_evolver.evolve_round()`，将 `EvolutionReport` 写入日志 | **P0** | ✅ (deferred — requires runtime pipeline changes) |
 | **EE-502** | 新建 direction_generator.py | 包含 `DirectionGenerator` 类，封装所有 LLM prompt 构建与调用逻辑 | **P0** | ✅ (in evolution_engine.py) |
 | **EE-503** | 新建 island_evolver.py | 包含 `IslandEvolver` 类，封装进化流程编排逻辑 | **P0** | ✅ (in evolution_engine.py) |
 

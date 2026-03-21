@@ -153,10 +153,59 @@ class OpenVikingContext:
         strategy: str, 
         depth: str
     ) -> List[ContextBlock]:
-        """Generate fallback context when OpenViking unavailable"""
-        contexts = []
+        """Generate fallback context when OpenViking unavailable.
         
-        # Strategy-specific system prompt
+        SI-403: Falls back to island/strategy structure when available.
+        Tries to load island perspectives and strategy descriptions from IslandPool.
+        """
+        contexts = []
+
+        # SI-403: Try island/strategy structure first
+        try:
+            from .strategy_island import IslandPool
+            pool = IslandPool()
+            for island in pool.islands:
+                perspective = island.config.perspective
+                contexts.append(ContextBlock(
+                    uri=f"viking://island/{island.config.name}/perspective",
+                    content=f"[Island: {island.config.name}] {perspective}",
+                    layer="L0",
+                    relevance_score=0.85,
+                    source="island",
+                ))
+            if contexts:
+                # Still include strategy-specific guidance so different strategies
+                # produce different context (preserves backward compat)
+                strategy_prompts = {
+                    "breadth_first": "Prioritize diverse sources and multiple perspectives.",
+                    "depth_first": "Focus on authoritative primary sources and thorough analysis.",
+                    "lateral_thinking": "Explore unconventional angles and creative solutions.",
+                    "verification_heavy": "Verify all facts through cross-referencing.",
+                }
+                strat_prompt = strategy_prompts.get(strategy, "")
+                if strat_prompt:
+                    contexts.append(ContextBlock(
+                        uri=f"viking://agent/instructions/strategy/{strategy}",
+                        content=f"[Strategy: {strategy}] {strat_prompt}",
+                        layer="L0",
+                        relevance_score=0.9,
+                        source="agent",
+                    ))
+                # Add task format instructions at L1
+                if depth in ["L1", "L2"]:
+                    contexts.append(ContextBlock(
+                        uri="viking://agent/instructions/task_format",
+                        content="When answering: 1) Provide clear reasoning, 2) Cite sources when possible, "
+                                "3) Acknowledge uncertainty, 4) Use structured format for complex answers.",
+                        layer="L1",
+                        relevance_score=0.8,
+                        source="agent",
+                    ))
+                return contexts
+        except Exception:
+            pass  # Fall through to legacy prompts
+
+        # Legacy: Strategy-specific system prompt
         strategy_prompts = {
             "breadth_first": "Prioritize diverse sources and multiple perspectives.",
             "depth_first": "Focus on authoritative primary sources and thorough analysis.",
