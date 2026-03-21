@@ -954,7 +954,11 @@ async def execute_multi_path_pipeline(
     evolving_enabled = ov_cfg.get("evolving", {}).get("enabled", False) if isinstance(ov_cfg, dict) else False
     if ov_enabled or evolving_enabled:
         try:
+            ov_server_url = ov_cfg.get("openviking", {}).get("server_url", "http://localhost:1933") if isinstance(ov_cfg, dict) else "http://localhost:1933"
+            ov_api_key = ov_cfg.get("openviking", {}).get("api_key", "") if isinstance(ov_cfg, dict) else ""
             viking_context = OpenVikingContext(
+                server_url=ov_server_url,
+                api_key=ov_api_key,
                 enabled=ov_enabled,
                 fallback_mode=True,  # Always allow in-memory fallback
             )
