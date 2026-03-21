@@ -36,6 +36,9 @@ from .strategy_compiler import compile_strategy
 from .seed_strategies import SEED_STRATEGIES
 from .strategy_definition import StrategyDefinition
 
+# SI-401: Strategy Island integration
+from .strategy_island import IslandPool
+
 # EA-307: OpenViking Context
 from .openviking_context import OpenVikingContext, Discovery
 
@@ -316,14 +319,32 @@ def _select_strategies(
     qp_cfg = cfg.get("question_parser", {}) if cfg else {}
     qp_enabled = qp_cfg.get("enabled", False)
 
-    # QP-305: When QP is enabled, use seed strategies compiled via StrategyCompiler
+    # SI-401/402: When QP is enabled, use IslandPool.sample_all() for strategy selection.
+    # Path count = island count (dynamic, SI-402). Falls back to seed strategies if
+    # all islands are empty.
     if qp_enabled and parsed_question is not None:
+        try:
+            pool = IslandPool()
+            qt = parsed_question.question_type if parsed_question else None
+            sampled = pool.sample_all(qt)
+            # Filter out None (empty islands) and compile
+            non_none = [s for s in sampled if s is not None]
+            if non_none:
+                compiled = [compile_strategy(s) for s in non_none]
+                selected = compiled[:num_paths] if num_paths else compiled
+                logger.info(
+                    f"SI strategy selection: type={qt}, "
+                    f"islands={pool.island_count}, "
+                    f"selected={[s['name'] for s in selected]}"
+                )
+                return selected
+        except Exception as e:
+            logger.warning(f"IslandPool strategy selection failed, falling back to seeds: {e}")
+        # Fallback: use compiled seed strategies (original QP-305 behavior)
         compiled_seeds = [compile_strategy(s) for s in SEED_STRATEGIES]
-        # QP-302: Use parsed_question for strategy selection (future: rank by type win rate)
-        # For now, select first num_paths compiled seed strategies
         selected = compiled_seeds[:num_paths]
         logger.info(
-            f"QP strategy selection: type={parsed_question.question_type}, "
+            f"QP strategy selection (fallback): type={parsed_question.question_type}, "
             f"selected={[s['name'] for s in selected]}"
         )
         return selected
