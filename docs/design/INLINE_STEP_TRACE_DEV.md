@@ -81,42 +81,42 @@ Reflector / Evolver 读 L1 (不读原始 log)
 
 | 编号 | 功能名称 | 描述 | 状态 | 优先级 |
 |------|---------|------|------|--------|
-| **IST-001** | StepTrace 数据结构 | 单步痕迹记录：step / action / query / key_info / conclusion / confidence | ❌ 待开发 | P0 |
-| **IST-002** | TracingToolWrapper | 包装现有 ToolManager，每次工具调用后自动提取 key_info (≤80 chars) | ❌ 待开发 | P0 |
-| **IST-003** | key_info 提取策略 — 搜索 | 搜索结果取第一条 title + snippet | ❌ 待开发 | P0 |
-| **IST-004** | key_info 提取策略 — 网页浏览 | 网页取标题 + 首段摘要 | ❌ 待开发 | P0 |
-| **IST-005** | key_info 提取策略 — 代码执行 | stdout 最后几行 | ❌ 待开发 | P0 |
-| **IST-006** | key_info 提取策略 — 兜底 | 未知工具类型截取前 80 字符 | ❌ 待开发 | P1 |
-| **IST-007** | ConclusionExtractor | 从 Agent 输出中解析 `<conclusion>` 和 `<confidence>` XML 标签 | ❌ 待开发 | P0 |
-| **IST-008** | System Prompt 注入 | Agent system prompt 末尾追加 trace 输出要求（每步输出 conclusion + confidence 标签） | ❌ 待开发 | P0 |
-| **IST-009** | 标签清理 | 从 Agent 输出中移除 trace 标签，不影响下游显示 | ❌ 待开发 | P1 |
-| **IST-010** | StepTraceCollector | 收集器：记录 tool_call → 补填 conclusion → 维护步骤序号 | ❌ 待开发 | P0 |
-| **IST-011** | Collector 孤立 conclusion 处理 | 非 tool-use 时的 conclusion 自动创建 action="reason" 步骤 | ❌ 待开发 | P1 |
-| **IST-012** | Collector Token 累计 | 每步记录 token 消耗，汇总到路径级 | ❌ 待开发 | P2 |
+| **IST-001** | StepTrace 数据结构 | 单步痕迹记录：step / action / query / key_info / conclusion / confidence | ✅ 已完成 | P0 |
+| **IST-002** | TracingToolWrapper | 包装现有 ToolManager，每次工具调用后自动提取 key_info (≤80 chars) | ✅ 已完成 | P0 |
+| **IST-003** | key_info 提取策略 — 搜索 | 搜索结果取第一条 title + snippet | ✅ 已完成 | P0 |
+| **IST-004** | key_info 提取策略 — 网页浏览 | 网页取标题 + 首段摘要 | ✅ 已完成 | P0 |
+| **IST-005** | key_info 提取策略 — 代码执行 | stdout 最后几行 | ✅ 已完成 | P0 |
+| **IST-006** | key_info 提取策略 — 兜底 | 未知工具类型截取前 80 字符 | ✅ 已完成 | P1 |
+| **IST-007** | ConclusionExtractor | 从 Agent 输出中解析 `<conclusion>` 和 `<confidence>` XML 标签 | ✅ 已完成 | P0 |
+| **IST-008** | System Prompt 注入 | Agent system prompt 末尾追加 trace 输出要求（每步输出 conclusion + confidence 标签） | ✅ 已完成 | P0 |
+| **IST-009** | 标签清理 | 从 Agent 输出中移除 trace 标签，不影响下游显示 | ✅ 已完成 | P1 |
+| **IST-010** | StepTraceCollector | 收集器：记录 tool_call → 补填 conclusion → 维护步骤序号 | ✅ 已完成 | P0 |
+| **IST-011** | Collector 孤立 conclusion 处理 | 非 tool-use 时的 conclusion 自动创建 action="reason" 步骤 | ✅ 已完成 | P1 |
+| **IST-012** | Collector Token 累计 | 每步记录 token 消耗，汇总到路径级 | ✅ 已完成 | P2 |
 
 ### 3.2 第二层：路径摘要生成 (Path Digest)
 
 | 编号 | 功能名称 | 描述 | 状态 | 优先级 |
 |------|---------|------|------|--------|
-| **IST-101** | PathDigest 数据结构 | 路径摘要：answer / confidence / traces / reasoning_chain / key_findings / potential_issues | ❌ 待开发 | P0 |
-| **IST-102** | Collector.finalize() | 路径执行完毕 → 自动汇总生成 PathDigest | ❌ 待开发 | P0 |
-| **IST-103** | reasoning_chain 自动拼接 | 从 conclusions 中取首/中/尾三条拼接为推理链 (2-3 句话) | ❌ 待开发 | P0 |
-| **IST-104** | key_findings 自动提取 | 从 key_info 中提取有价值的发现 (≤5 条) | ❌ 待开发 | P1 |
-| **IST-105** | potential_issues 自动识别 | 低置信度步骤 + 空搜索结果 → 标记为潜在问题 (≤3 条) | ❌ 待开发 | P1 |
-| **IST-106** | L0/L1/L2 分层输出 | PathDigest 支持三层导出：L0 (~30 tokens) / L1 (~400 tokens) / L2 (完整) | ❌ 待开发 | P0 |
-| **IST-107** | TaskDigestBundle | 任务级聚合：所有路径的 PathDigest + 投票结果 + 正确性 | ❌ 待开发 | P1 |
-| **IST-108** | 多路径对比视图 | TaskDigestBundle.get_comparison_view() 供进化模块使用 (~800-1200 tokens for 5 paths) | ❌ 待开发 | P1 |
+| **IST-101** | PathDigest 数据结构 | 路径摘要：answer / confidence / traces / reasoning_chain / key_findings / potential_issues | ✅ 已完成 | P0 |
+| **IST-102** | Collector.finalize() | 路径执行完毕 → 自动汇总生成 PathDigest | ✅ 已完成 | P0 |
+| **IST-103** | reasoning_chain 自动拼接 | 从 conclusions 中取首/中/尾三条拼接为推理链 (2-3 句话) | ✅ 已完成 | P0 |
+| **IST-104** | key_findings 自动提取 | 从 key_info 中提取有价值的发现 (≤5 条) | ✅ 已完成 | P1 |
+| **IST-105** | potential_issues 自动识别 | 低置信度步骤 + 空搜索结果 → 标记为潜在问题 (≤3 条) | ✅ 已完成 | P1 |
+| **IST-106** | L0/L1/L2 分层输出 | PathDigest 支持三层导出：L0 (~30 tokens) / L1 (~400 tokens) / L2 (完整) | ✅ 已完成 | P0 |
+| **IST-107** | TaskDigestBundle | 任务级聚合：所有路径的 PathDigest + 投票结果 + 正确性 | ✅ 已完成 | P1 |
+| **IST-108** | 多路径对比视图 | TaskDigestBundle.get_comparison_view() 供进化模块使用 (~800-1200 tokens for 5 paths) | ✅ 已完成 | P1 |
 
 ### 3.3 第三层：存储与检索 (Digest Store)
 
 | 编号 | 功能名称 | 描述 | 存储位置 | 状态 | 优先级 |
 |------|---------|------|---------|------|--------|
-| **IST-201** | DigestStore 接口定义 | save / load / query 的统一接口 | — | ❌ 待开发 | P0 |
-| **IST-202** | 本地 JSON 后端 | 降级模式：PathDigest → `data/digests/task_xxx_pathN.json` | `data/digests/` | ❌ 待开发 | P0 |
+| **IST-201** | DigestStore 接口定义 | save / load / query 的统一接口 | — | ✅ 已完成 | P0 |
+| **IST-202** | 本地 JSON 后端 | 降级模式：PathDigest → `data/digests/task_xxx_pathN.json` | `data/digests/` | ✅ 已完成 | P0 |
 | **IST-203** | OpenViking 后端 | 正式模式：PathDigest → `viking://agent/memories/task_digests/` | `viking://agent/memories/task_digests/` | ❌ 待开发 | P2 |
-| **IST-204** | 按层级加载 | `load(task_id, path_index, depth="l0"|"l1"|"l2")` 按需返回不同详细度 | — | ❌ 待开发 | P0 |
-| **IST-205** | TaskBundle 存储 | 任务级聚合保存为 `task_xxx_bundle.json` | `data/digests/` | ❌ 待开发 | P1 |
-| **IST-206** | 对比视图加载 | `load_task_comparison(task_id)` 返回格式化的多路径对比文本 | — | ❌ 待开发 | P1 |
+| **IST-204** | 按层级加载 | `load(task_id, path_index, depth="l0"|"l1"|"l2")` 按需返回不同详细度 | — | ✅ 已完成 | P0 |
+| **IST-205** | TaskBundle 存储 | 任务级聚合保存为 `task_xxx_bundle.json` | `data/digests/` | ✅ 已完成 | P1 |
+| **IST-206** | 对比视图加载 | `load_task_comparison(task_id)` 返回格式化的多路径对比文本 | — | ✅ 已完成 | P1 |
 
 ### 3.4 第四层：下游集成 (Integration)
 
@@ -135,20 +135,20 @@ Reflector / Evolver 读 L1 (不读原始 log)
 
 | 编号 | 功能名称 | 描述 | 状态 | 优先级 |
 |------|---------|------|------|--------|
-| **IST-401** | 单元测试 — StepTrace 数据结构 | 创建、序列化、反序列化 | ❌ 待开发 | P0 |
-| **IST-402** | 单元测试 — PathDigest 三层输出 | L0/L1/L2 字段正确性和 token 大小 | ❌ 待开发 | P0 |
-| **IST-403** | 单元测试 — ConclusionExtractor | 标准提取 / 无标签 / 畸形标签 / 标签移除 | ❌ 待开发 | P0 |
-| **IST-404** | 单元测试 — TracingToolWrapper | 4 种 key_info 提取策略 + 兜底 | ❌ 待开发 | P0 |
-| **IST-405** | 单元测试 — StepTraceCollector | 记录 → 补填 → finalize → 汇总 | ❌ 待开发 | P0 |
-| **IST-406** | 单元测试 — DigestStore 读写 | 保存 / 加载 / 层级过滤 / 文件不存在 | ❌ 待开发 | P0 |
-| **IST-407** | 集成测试 — 完整单路径 trace | 真实工具执行 → 生成 PathDigest → 验证内容 | ❌ 待开发 | P1 |
-| **IST-408** | 集成测试 — 多路径 bundle | 多路径执行 → TaskDigestBundle → 对比视图 | ❌ 待开发 | P1 |
+| **IST-401** | 单元测试 — StepTrace 数据结构 | 创建、序列化、反序列化 | ✅ 已完成 | P0 |
+| **IST-402** | 单元测试 — PathDigest 三层输出 | L0/L1/L2 字段正确性和 token 大小 | ✅ 已完成 | P0 |
+| **IST-403** | 单元测试 — ConclusionExtractor | 标准提取 / 无标签 / 畸形标签 / 标签移除 | ✅ 已完成 | P0 |
+| **IST-404** | 单元测试 — TracingToolWrapper | 4 种 key_info 提取策略 + 兜底 | ✅ 已完成 | P0 |
+| **IST-405** | 单元测试 — StepTraceCollector | 记录 → 补填 → finalize → 汇总 | ✅ 已完成 | P0 |
+| **IST-406** | 单元测试 — DigestStore 读写 | 保存 / 加载 / 层级过滤 / 文件不存在 | ✅ 已完成 | P0 |
+| **IST-407** | 集成测试 — 完整单路径 trace | 真实工具执行 → 生成 PathDigest → 验证内容 | ✅ 已完成 | P1 |
+| **IST-408** | 集成测试 — 多路径 bundle | 多路径执行 → TaskDigestBundle → 对比视图 | ✅ 已完成 | P1 |
 | **IST-409** | 集成测试 — Reflector 读 digest | Reflector 从 digest 构建反思输入 | ❌ 待开发 | P1 |
 | **IST-410** | 集成测试 — Reflector 降级 | digest 不存在时走旧路径读原始 log | ❌ 待开发 | P1 |
-| **IST-411** | 回归测试 — 现有测试全通过 | 加入 IST 后 37 个已有单元测试不受影响 | ❌ 待开发 | P0 |
-| **IST-412** | 回归测试 — Agent 答案不变 | TracingWrapper 不影响 Agent 的最终输出 | ❌ 待开发 | P0 |
+| **IST-411** | 回归测试 — 现有测试全通过 | 加入 IST 后 37 个已有单元测试不受影响 | ✅ 已完成 | P0 |
+| **IST-412** | 回归测试 — Agent 答案不变 | TracingWrapper 不影响 Agent 的最终输出 | ✅ 已完成 | P0 |
 | **IST-413** | 回归测试 — step_logs 仍生成 | 原始 step_logs 格式不变，仍然写入 | ❌ 待开发 | P0 |
-| **IST-414** | 回归测试 — 零额外 API 调用 | 加入 IST 后无新增 LLM API 调用 | ❌ 待开发 | P0 |
+| **IST-414** | 回归测试 — 零额外 API 调用 | 加入 IST 后无新增 LLM API 调用 | ✅ 已完成 | P0 |
 | **IST-415** | 性能测试 — token 压缩率 | 反思输入 token 对比：旧 vs 新 | ❌ 待开发 | P1 |
 | **IST-416** | 性能测试 — Wrapper 延迟 | TracingToolWrapper 增加的延迟 ≤5ms/step | ❌ 待开发 | P2 |
 | **IST-417** | 性能测试 — conclusion 输出率 | cat10 上 conclusion 标签的实际输出比例 ≥70% | ❌ 待开发 | P1 |
