@@ -126,8 +126,8 @@
 
 ### 2.7 测试
 
-| 编号 | 功能 | 描述 | 优先级 |
-|------|------|------|--------|
+| 编号 | 功能 | 描述 | 优先级 | 状态 |
+|------|------|------|--------|------|
 | **EE-601** | test_refine_prompt_generation | 验证 Refine prompt 正确拼装8维+胜率+失败案例 | **P0** | ✅ |
 | **EE-602** | test_refine_output_parsing | 验证合法 JSON → StrategyDefinition 转换 | **P0** | ✅ |
 | **EE-603** | test_refine_output_parsing_malformed | 验证畸形 JSON 的错误处理 | **P0** | ✅ |

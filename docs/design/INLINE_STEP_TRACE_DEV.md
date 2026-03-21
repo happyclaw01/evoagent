@@ -113,7 +113,7 @@ Reflector / Evolver 读 L1 (不读原始 log)
 |------|---------|------|---------|------|--------|
 | **IST-201** | DigestStore 接口定义 | save / load / query 的统一接口 | — | ✅ 已完成 | P0 |
 | **IST-202** | 本地 JSON 后端 | 降级模式：PathDigest → `data/digests/task_xxx_pathN.json` | `data/digests/` | ✅ 已完成 | P0 |
-| **IST-203** | OpenViking 后端 | 正式模式：PathDigest → `viking://agent/memories/task_digests/` | `viking://agent/memories/task_digests/` | ❌ 待开发 | P2 |
+| **IST-203** | OpenViking 后端 | 正式模式：PathDigest → `viking://agent/memories/task_digests/` | `viking://agent/memories/task_digests/` | ⏭️ P2 延后 | P2 |
 | **IST-204** | 按层级加载 | `load(task_id, path_index, depth="l0"|"l1"|"l2")` 按需返回不同详细度 | — | ✅ 已完成 | P0 |
 | **IST-205** | TaskBundle 存储 | 任务级聚合保存为 `task_xxx_bundle.json` | `data/digests/` | ✅ 已完成 | P1 |
 | **IST-206** | 对比视图加载 | `load_task_comparison(task_id)` 返回格式化的多路径对比文本 | — | ✅ 已完成 | P1 |
@@ -149,11 +149,11 @@ Reflector / Evolver 读 L1 (不读原始 log)
 | **IST-412** | 回归测试 — Agent 答案不变 | TracingWrapper 不影响 Agent 的最终输出 | ✅ 已完成 | P0 |
 | **IST-413** | 回归测试 — step_logs 仍生成 | 原始 step_logs 格式不变，仍然写入 | ❌ 待开发 | P0 |
 | **IST-414** | 回归测试 — 零额外 API 调用 | 加入 IST 后无新增 LLM API 调用 | ✅ 已完成 | P0 |
-| **IST-415** | 性能测试 — token 压缩率 | 反思输入 token 对比：旧 vs 新 | ❌ 待开发 | P1 |
-| **IST-416** | 性能测试 — Wrapper 延迟 | TracingToolWrapper 增加的延迟 ≤5ms/step | ❌ 待开发 | P2 |
-| **IST-417** | 性能测试 — conclusion 输出率 | cat10 上 conclusion 标签的实际输出比例 ≥70% | ❌ 待开发 | P1 |
-| **IST-418** | 性能测试 — digest 文件大小 | PathDigest JSON ≤5KB/path | ❌ 待开发 | P2 |
-| **IST-419** | 真实数据验证 | 用 logs/futurex_cat10_evolved/ 的 5 个 log 模拟 trace 提取，验证 L1 < 500 tokens | ❌ 待开发 | P1 |
+| **IST-415** | 性能测试 — token 压缩率 | 反思输入 token 对比：旧 vs 新 | ⏭️ 需集成后测 | P1 |
+| **IST-416** | 性能测试 — Wrapper 延迟 | TracingToolWrapper 增加的延迟 ≤5ms/step | ⏭️ 需集成后测 | P2 |
+| **IST-417** | 性能测试 — conclusion 输出率 | cat10 上 conclusion 标签的实际输出比例 ≥70% | ⏭️ 需真实LLM | P1 |
+| **IST-418** | 性能测试 — digest 文件大小 | PathDigest JSON ≤5KB/path | ⏭️ 需集成后测 | P2 |
+| **IST-419** | 真实数据验证 | 用 logs/futurex_cat10_evolved/ 的 5 个 log 模拟 trace 提取，验证 L1 < 500 tokens | ⏭️ 需真实数据 | P1 |
 
 ---
 
