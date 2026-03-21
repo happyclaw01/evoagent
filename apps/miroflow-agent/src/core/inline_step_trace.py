@@ -694,8 +694,9 @@ class DigestStore:
     IST-206: 对比视图加载
     """
 
-    def __init__(self, base_dir: str = "data/digests") -> None:
+    def __init__(self, base_dir: str = "data/digests", viking_storage=None) -> None:
         self._base_dir = Path(base_dir)
+        self._viking = viking_storage
 
     def _ensure_dir(self) -> None:
         self._base_dir.mkdir(parents=True, exist_ok=True)
@@ -719,6 +720,12 @@ class DigestStore:
             json.dumps(data, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+        # Viking write-through
+        if self._viking is not None:
+            self._viking.put(
+                f"viking://agent/memory/digests/{digest.task_id}_path{digest.path_index}",
+                data,
+            )
 
     # ── IST-205: save_task_bundle ────────────────
 
@@ -731,6 +738,12 @@ class DigestStore:
             json.dumps(data, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+        # Viking write-through
+        if self._viking is not None:
+            self._viking.put(
+                f"viking://agent/memory/digests/{bundle.task_id}_bundle",
+                data,
+            )
 
     # ── IST-204: load_path_digest ────────────────
 

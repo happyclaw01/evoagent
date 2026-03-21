@@ -608,12 +608,22 @@ class IslandStore:
     """岛存储管理器 (SI-301~304)。"""
 
     def __init__(self, primary: LocalJsonBackend,
-                 fallback: Optional[Any] = None) -> None:
+                 fallback: Optional[Any] = None,
+                 viking_storage=None) -> None:
         self.primary = primary
         self.fallback = fallback
+        self._viking = viking_storage
 
     def save(self, pool: IslandPool) -> None:
         self.primary.save_pool(pool)
+        # Viking write-through: PUT each island
+        if self._viking is not None:
+            for island in pool.islands:
+                island_name = island.config.name
+                self._viking.put(
+                    f"viking://agent/skills/islands/{island_name}",
+                    island.to_dict(),
+                )
 
     def load(self, level: int = 2) -> Optional[IslandPool]:
         data = self.primary.load_pool()
@@ -628,6 +638,13 @@ class IslandStore:
 
     def save_result(self, result: dict) -> None:
         self.primary.save_result(result)
+        # Viking write-through
+        if self._viking is not None:
+            task_id = result.get("task_id", "unknown")
+            self._viking.put(
+                f"viking://agent/memory/results/{task_id}",
+                result,
+            )
 
     def load_results(self, limit: Optional[int] = None) -> List[dict]:
         return self.primary.load_results(limit)

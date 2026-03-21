@@ -409,6 +409,34 @@ class OpenVikingContext:
         
         return iteration_result
     
+    # ==================== Generic URI Storage ====================
+
+    async def save_to_uri(self, uri: str, data: dict) -> None:
+        """Save arbitrary data to a viking:// URI.
+
+        Used by VikingStorageSync for write-through persistence.
+        When connected to a real OpenViking server this would perform an HTTP PUT;
+        in fallback mode the data is stored in the in-memory store keyed by URI.
+        """
+        block = ContextBlock(
+            uri=uri,
+            content=json.dumps(data, ensure_ascii=False),
+            layer="L1",
+            relevance_score=0.5,
+            source="write-through",
+        )
+
+        # Key by URI prefix to keep things organized
+        if uri not in self._memory_store:
+            self._memory_store[uri] = []
+        self._memory_store[uri].append(block)
+
+        # Cap per-URI history at 50 entries
+        if len(self._memory_store[uri]) > 50:
+            self._memory_store[uri] = self._memory_store[uri][-50:]
+
+        logger.debug(f"Saved to URI {uri}")
+
     # ==================== Utility Methods ====================
     
     def get_statistics(self) -> Dict[str, Any]:

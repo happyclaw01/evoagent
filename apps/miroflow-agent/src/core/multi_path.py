@@ -68,6 +68,9 @@ from .inline_step_trace import (
 # EA-307: OpenViking Context
 from .openviking_context import OpenVikingContext, Discovery
 
+# Viking write-through storage
+from .viking_storage import VikingStorageSync
+
 # EA-011: Streaming
 from .streaming import (
     get_stream_manager, 
@@ -924,12 +927,21 @@ async def execute_multi_path_pipeline(
     if qp_cfg.get("enabled", False) and parsed_question is not None:
         num_paths = len(strategies)
 
+    # Viking write-through storage: create when QP enabled + OpenViking configured
+    viking_storage: Optional[VikingStorageSync] = None
+    storage_cfg = OmegaConf.to_container(cfg, resolve=True) if cfg else {}
+    storage_ov_cfg = storage_cfg.get("storage", {}).get("openviking", {}) if isinstance(storage_cfg, dict) else {}
+    storage_ov_enabled = storage_ov_cfg.get("enabled", False)
+
     # IST-307: Feature flag controls IST on/off
     ist_enabled = qp_cfg.get("enabled", False)
     digest_store = None
     if ist_enabled:
         try:
-            digest_store = DigestStore(base_dir=str(Path(log_dir) / "digests"))
+            digest_store = DigestStore(
+                base_dir=str(Path(log_dir) / "digests"),
+                viking_storage=viking_storage,  # may be None at this point, set below
+            )
         except Exception as e:
             logger.warning(f"DigestStore init failed: {e}")
             digest_store = None
@@ -948,6 +960,13 @@ async def execute_multi_path_pipeline(
             )
             await viking_context.connect()
             logger.info(f"OpenViking context initialized (server={'connected' if viking_context._connected else 'fallback'})")
+            # Create VikingStorageSync when storage.openviking.enabled and viking_context is ready
+            if storage_ov_enabled and qp_cfg.get("enabled", False):
+                viking_storage = VikingStorageSync(viking_context)
+                # Wire into digest_store if it was already created
+                if digest_store is not None:
+                    digest_store._viking = viking_storage
+                logger.info("VikingStorageSync initialized for write-through storage")
         except Exception as e:
             logger.warning(f"OpenViking init failed, continuing without: {e}")
             viking_context = None
@@ -1438,7 +1457,10 @@ async def execute_multi_path_pipeline(
             from ..evolving.experience_store import ExperienceStore
             from ..evolving.reflector import auto_reflect_multi_path
 
-            store = ExperienceStore(evolving_cfg.get("experience_file", ""))
+            store = ExperienceStore(
+                evolving_cfg.get("experience_file", ""),
+                viking_storage=viking_storage,
+            )
             await auto_reflect_multi_path(
                 path_results=processed_results,
                 task_description=task_description,

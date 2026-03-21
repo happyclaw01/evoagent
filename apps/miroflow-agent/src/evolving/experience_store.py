@@ -57,9 +57,10 @@ class ExperienceStore:
         D (ExperienceInjector) -> query(), format_for_prompt()
     """
 
-    def __init__(self, file_path: str):
+    def __init__(self, file_path: str, viking_storage=None):
         self._file_path = Path(file_path) if file_path else Path("data/experiences.jsonl")
         self._store: Dict[str, dict] = {}
+        self._viking = viking_storage
         self._load()
 
     # ------------------------------------------------------------------
@@ -79,6 +80,10 @@ class ExperienceStore:
         else:
             self._append_one(experience)
 
+        # Viking write-through
+        if self._viking is not None and task_id:
+            self._viking.put(f"viking://agent/experiences/{task_id}", experience)
+
     def add_batch(self, experiences: List[dict]) -> int:
         """Batch-write experiences.  Returns count of new/updated entries."""
         count = 0
@@ -88,6 +93,9 @@ class ExperienceStore:
             if task_id not in self._store or self._store[task_id] != exp:
                 self._store[task_id] = exp
                 count += 1
+                # Viking write-through
+                if self._viking is not None and task_id:
+                    self._viking.put(f"viking://agent/experiences/{task_id}", exp)
 
         if count > 0:
             self._save_all()
