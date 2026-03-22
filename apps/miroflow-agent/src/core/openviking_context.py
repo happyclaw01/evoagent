@@ -423,25 +423,79 @@ class OpenVikingContext:
         """Save arbitrary data to a viking:// URI.
 
         Used by VikingStorageSync for write-through persistence.
-        When connected to a real OpenViking server this would perform an HTTP PUT;
-        in fallback mode the data is stored in the in-memory store keyed by URI.
+        Writes to OpenViking server via HTTP API when connected,
+        falls back to in-memory store otherwise.
         """
+        content_str = json.dumps(data, ensure_ascii=False)
+
+        # In-memory store (always, for read-back during this session)
         block = ContextBlock(
             uri=uri,
-            content=json.dumps(data, ensure_ascii=False),
+            content=content_str,
             layer="L1",
             relevance_score=0.5,
             source="write-through",
         )
-
-        # Key by URI prefix to keep things organized
         if uri not in self._memory_store:
             self._memory_store[uri] = []
         self._memory_store[uri].append(block)
-
-        # Cap per-URI history at 50 entries
         if len(self._memory_store[uri]) > 50:
             self._memory_store[uri] = self._memory_store[uri][-50:]
+
+        # Persist to OpenViking server via HTTP API
+        if self.enabled and self._connected:
+            try:
+                import tempfile, os, aiohttp
+
+                # Convert URI to a filesystem path under agent/
+                # e.g. "viking://agent/experiences/task123" -> "agent/experiences/task123.json"
+                path_part = uri.replace("viking://", "").rstrip("/")
+                if not path_part.endswith(".json"):
+                    path_part += ".json"
+
+                # Write to a temp file, then POST to OpenViking
+                with tempfile.NamedTemporaryFile(
+                    mode="w", suffix=".json", delete=False, encoding="utf-8"
+                ) as tmp:
+                    tmp.write(content_str)
+                    tmp_path = tmp.name
+
+                async with aiohttp.ClientSession(trust_env=False) as session:
+                    payload = {
+                        "path": tmp_path,
+                        "to": path_part,
+                        "reason": f"write-through from EvoAgent: {uri}",
+                        "wait": True,
+                        "timeout": 30.0,
+                    }
+                    headers = {"Content-Type": "application/json"}
+                    if self.api_key:
+                        headers["Authorization"] = f"Bearer {self.api_key}"
+
+                    async with session.post(
+                        f"{self.server_url}/api/v1/resources",
+                        json=payload,
+                        headers=headers,
+                        timeout=aiohttp.ClientTimeout(total=30),
+                    ) as resp:
+                        if resp.status == 200:
+                            logger.debug(f"Persisted to OpenViking: {uri} -> {path_part}")
+                        else:
+                            body = await resp.text()
+                            logger.warning(
+                                f"OpenViking persist failed for {uri}: HTTP {resp.status} {body[:200]}"
+                            )
+
+                # Clean up temp file
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+
+            except ImportError:
+                logger.debug("aiohttp not available, skipping OpenViking persistence")
+            except Exception as e:
+                logger.warning(f"OpenViking persist failed for {uri}: {e}")
 
         logger.debug(f"Saved to URI {uri}")
 
