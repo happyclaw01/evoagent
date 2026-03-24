@@ -57,9 +57,11 @@ class ExperienceStore:
         D (ExperienceInjector) -> query(), format_for_prompt()
     """
 
-    def __init__(self, file_path: str):
+    def __init__(self, file_path: str, viking_storage=None, viking_context=None):
         self._file_path = Path(file_path) if file_path else Path("data/experiences.jsonl")
         self._store: Dict[str, dict] = {}
+        self._viking = viking_storage
+        self._viking_context = viking_context
         self._load()
 
     # ------------------------------------------------------------------
@@ -79,6 +81,10 @@ class ExperienceStore:
         else:
             self._append_one(experience)
 
+        # Viking write-through
+        if self._viking is not None and task_id:
+            self._viking.put(f"viking://agent/experiences/{task_id}", experience)
+
     def add_batch(self, experiences: List[dict]) -> int:
         """Batch-write experiences.  Returns count of new/updated entries."""
         count = 0
@@ -88,6 +94,9 @@ class ExperienceStore:
             if task_id not in self._store or self._store[task_id] != exp:
                 self._store[task_id] = exp
                 count += 1
+                # Viking write-through
+                if self._viking is not None and task_id:
+                    self._viking.put(f"viking://agent/experiences/{task_id}", exp)
 
         if count > 0:
             self._save_all()
@@ -101,8 +110,14 @@ class ExperienceStore:
         level: Optional[int] = None,
         was_correct: Optional[bool] = None,
         max_count: int = 10,
+        semantic_query: Optional[str] = None,
     ) -> List[dict]:
-        """Multi-dimensional AND filter.  Returns matches in reverse-chronological order."""
+        """Multi-dimensional AND filter.  Returns matches in reverse-chronological order.
+
+        When *semantic_query* is provided and a viking_context + viking_storage
+        are available, a semantic search on OpenViking is performed and the
+        results are merged with local matches (deduplicated by task_id).
+        """
         results = list(self._store.values())
 
         if question_type is not None:
@@ -118,6 +133,27 @@ class ExperienceStore:
             results = [e for e in results if e.get("level") == level]
         if was_correct is not None:
             results = [e for e in results if e.get("was_correct") == was_correct]
+
+        # Semantic search enrichment via OpenViking
+        if semantic_query is not None and self._viking_context is not None and self._viking is not None:
+            try:
+                remote_hits = self._viking.query_sync(
+                    self._viking_context.search_by_embedding(
+                        query_text=semantic_query,
+                        uri_prefix="viking://agent/experiences/",
+                        max_results=max_count,
+                    )
+                )
+                # Merge: dedup by task_id (local wins)
+                local_ids = {e.get("task_id") for e in results}
+                for hit in remote_hits:
+                    data = hit.get("data", {})
+                    tid = data.get("task_id", "")
+                    if tid and tid not in local_ids:
+                        results.append(data)
+                        local_ids.add(tid)
+            except Exception as e:
+                logger.warning(f"Semantic search enrichment failed: {e}")
 
         results.sort(key=lambda e: e.get("created_at", ""), reverse=True)
         return results[:max_count]

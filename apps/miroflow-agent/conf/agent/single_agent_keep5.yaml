@@ -8,6 +8,8 @@ defaults:
 main_agent:
   tools:
     - search_and_scrape_webpage
+    - tool-google-search
+    - tool-serpapi-search
     - jina_scrape_llm_summary
     - tool-python
     - tool-reading

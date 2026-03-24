@@ -1007,8 +1007,21 @@ class GenericEvaluator(BenchmarkEvaluator):
                 f"If you encounter any source that reveals the actual outcome or resolution result, you MUST IGNORE it and base your prediction solely on information available before {deadline}."
             )
         else:
-            # Clear date filter for tasks without end_time
-            os.environ.pop("SEARCH_BEFORE_DATE", None)
+            # If no end_time in task metadata, check if SEARCH_BEFORE_DATE was set
+            # externally (e.g. for online prediction with a global cutoff date).
+            # Only clear if no external override was provided at startup.
+            external_cutoff = os.environ.get("_SEARCH_BEFORE_DATE_OVERRIDE", "")
+            if external_cutoff:
+                # Use the external override and add time constraint to prompt
+                os.environ["SEARCH_BEFORE_DATE"] = external_cutoff
+                task_description += (
+                    f"\n\nIMPORTANT TIME CONSTRAINT: You must ONLY use information that was available BEFORE {external_cutoff}. "
+                    f"Do NOT use any information published on or after {external_cutoff}. "
+                    f"Your goal is to PREDICT the outcome based on pre-deadline evidence, not to look up what already happened. "
+                    f"If you encounter any source that reveals the actual outcome or resolution result, you MUST IGNORE it and base your prediction solely on information available before {external_cutoff}."
+                )
+            else:
+                os.environ.pop("SEARCH_BEFORE_DATE", None)
 
         return task_description, task_file_path
 
