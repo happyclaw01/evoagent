@@ -200,6 +200,20 @@ TERMINATION_TEMPLATES: Dict[str, str] = {
 }
 
 
+# ──── QP-201: 8 维 TEMPLATES 主字典 ────
+# 单一字典，将维度名映射到对应的模板字典
+
+TEMPLATES: Dict[str, Dict[str, str]] = {
+    "hypothesis_framing": FRAMING_TEMPLATES,
+    "query_policy": QUERY_TEMPLATES,
+    "evidence_source": EVIDENCE_TEMPLATES,
+    "retrieval_depth": RETRIEVAL_TEMPLATES,
+    "update_policy": UPDATE_TEMPLATES,
+    "audit_policy": AUDIT_TEMPLATES,
+    "termination_policy": TERMINATION_TEMPLATES,
+}
+
+
 class StrategyCompiler:
     """策略编译器 — QP-209/211
 
