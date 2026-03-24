@@ -89,6 +89,42 @@ Return ONLY the JSON object, no other text."""
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+def _try_inject_digest(task_log: dict) -> None:
+    """IST-305/306: Try to load L1 digest data and inject into task_log.
+
+    Looks for digest file alongside the task log, or in digests/ subdirectory.
+    If found, sets task_log["_path_digest_l1"] for _extract_trace_summary to use.
+    Falls back silently if digest not available (IST-306).
+    """
+    if "_path_digest_l1" in task_log:
+        return  # Already injected
+
+    task_id = task_log.get("task_id", "")
+    if not task_id:
+        return
+
+    try:
+        # Try common digest locations
+        import os
+        log_dir = task_log.get("_log_dir", "")
+        if not log_dir:
+            # Try to infer from task_log file path
+            return
+
+        # Check digests/ subdirectory
+        for path_idx in range(10):  # Check paths 0-9
+            digest_file = Path(log_dir) / "digests" / f"{task_id}_path{path_idx}.json"
+            if digest_file.exists():
+                data = json.loads(digest_file.read_text(encoding="utf-8"))
+                # Convert to L1 format
+                from ..core.inline_step_trace import PathDigest
+                digest = PathDigest.from_dict(data)
+                task_log["_path_digest_l1"] = digest.to_l1()
+                return
+    except Exception:
+        pass  # IST-306: Silent fallback
+
+
 _TOOL_TAG_MAP = {
     "[TOOL>": "tool_call",
     "[SEARCH]": "web_search",
@@ -100,8 +136,17 @@ _TOOL_TAG_MAP = {
 def _extract_trace_summary(task_log: dict, max_steps: int = 15) -> str:
     """Extract a condensed trace from a task log.
 
+    IST-305: Preferentially reads L1 digest if available.
+    IST-306: Falls back to raw step_logs if digest is unavailable.
+
     Uses the correct StepLog field names: step_logs / info_level / step_name / message.
     """
+    # IST-305: Try to read L1 digest first (structured trace data)
+    digest = task_log.get("_path_digest_l1")
+    if digest is not None:
+        return _extract_trace_from_digest(digest)
+
+    # IST-306: Fallback to raw step_logs (backward compatible)
     steps = task_log.get("step_logs", [])
     if not steps:
         return "(no execution trace available)"
@@ -121,6 +166,55 @@ def _extract_trace_summary(task_log: dict, max_steps: int = 15) -> str:
         step_count += 1
 
     return "\n".join(summary_parts)
+
+
+def _extract_trace_from_digest(digest: dict) -> str:
+    """IST-305: Extract trace summary from L1 PathDigest.
+
+    Reads structured fields (reasoning_chain, key_findings, traces) to build
+    a compact summary instead of raw step_logs.
+    """
+    parts: list[str] = []
+
+    reasoning = digest.get("reasoning_chain", "")
+    if reasoning:
+        parts.append(f"Reasoning chain: {reasoning}")
+
+    findings = digest.get("key_findings", [])
+    if findings:
+        parts.append("Key findings:")
+        for f in findings[:5]:
+            parts.append(f"  - {f}")
+
+    issues = digest.get("potential_issues", [])
+    if issues:
+        parts.append("Potential issues:")
+        for issue in issues[:3]:
+            parts.append(f"  ⚠ {issue}")
+
+    traces = digest.get("traces", [])
+    if traces:
+        parts.append(f"Steps ({len(traces)} total):")
+        # Show first, middle, last traces
+        indices = [0]
+        if len(traces) > 2:
+            indices.append(len(traces) // 2)
+        if len(traces) > 1:
+            indices.append(len(traces) - 1)
+        for idx in indices:
+            t = traces[idx]
+            conclusion = t.get("conclusion", "")
+            key_info = t.get("key_info", "")
+            info = conclusion or key_info or t.get("query", "")
+            parts.append(
+                f"  [{t.get('step', '?')}] {t.get('action', '?')}: {info[:120]}"
+            )
+
+    tools = digest.get("tools_used", [])
+    if tools:
+        parts.append(f"Tools used: {', '.join(tools)}")
+
+    return "\n".join(parts) if parts else "(no structured trace available)"
 
 
 def _extract_tools_used(task_log: dict) -> List[str]:
@@ -200,6 +294,8 @@ async def reflect_on_task(
     is_correct = _normalize(agent_answer) == _normalize(ground_truth)
     result = "CORRECT" if is_correct else "INCORRECT"
 
+    # IST-305/306: Try to load digest for this task, inject into task_log for trace extraction
+    _try_inject_digest(task_log)
     trace_summary = _extract_trace_summary(task_log)
     tools_used = _extract_tools_used(task_log)
     tools_used_hint = ", ".join(tools_used) if tools_used else "(none detected)"

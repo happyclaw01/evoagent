@@ -90,14 +90,22 @@ class OpenVikingContext:
             return False
         
         try:
-            # Try to import and connect to OpenViking
-            # For now, we'll use a mock connection that falls back gracefully
-            # In production, this would be: self._client = AsyncOpenVikingClient(...)
-            self._connected = True
-            logger.info(f"Connected to OpenViking at {self.server_url}")
-            return True
+            # Health-check: verify the server is actually reachable
+            # trust_env=False bypasses ALL_PROXY/HTTP_PROXY which may block localhost
+            import aiohttp
+            async with aiohttp.ClientSession(trust_env=False) as session:
+                async with session.get(
+                    f"{self.server_url}/health",
+                    timeout=aiohttp.ClientTimeout(total=5),
+                ) as resp:
+                    if resp.status == 200:
+                        self._connected = True
+                        logger.info(f"Connected to OpenViking at {self.server_url}")
+                        return True
+                    else:
+                        raise ConnectionError(f"Health check returned {resp.status}")
         except Exception as e:
-            logger.warning(f"Failed to connect to OpenViking: {e}. Using fallback mode.")
+            logger.warning(f"Failed to connect to OpenViking at {self.server_url}: {e}. Using fallback mode.")
             if self.fallback_mode:
                 self._connected = False
                 return False
@@ -153,10 +161,59 @@ class OpenVikingContext:
         strategy: str, 
         depth: str
     ) -> List[ContextBlock]:
-        """Generate fallback context when OpenViking unavailable"""
-        contexts = []
+        """Generate fallback context when OpenViking unavailable.
         
-        # Strategy-specific system prompt
+        SI-403: Falls back to island/strategy structure when available.
+        Tries to load island perspectives and strategy descriptions from IslandPool.
+        """
+        contexts = []
+
+        # SI-403: Try island/strategy structure first
+        try:
+            from .strategy_island import IslandPool
+            pool = IslandPool()
+            for island in pool.islands:
+                perspective = island.config.perspective
+                contexts.append(ContextBlock(
+                    uri=f"viking://island/{island.config.name}/perspective",
+                    content=f"[Island: {island.config.name}] {perspective}",
+                    layer="L0",
+                    relevance_score=0.85,
+                    source="island",
+                ))
+            if contexts:
+                # Still include strategy-specific guidance so different strategies
+                # produce different context (preserves backward compat)
+                strategy_prompts = {
+                    "breadth_first": "Prioritize diverse sources and multiple perspectives.",
+                    "depth_first": "Focus on authoritative primary sources and thorough analysis.",
+                    "lateral_thinking": "Explore unconventional angles and creative solutions.",
+                    "verification_heavy": "Verify all facts through cross-referencing.",
+                }
+                strat_prompt = strategy_prompts.get(strategy, "")
+                if strat_prompt:
+                    contexts.append(ContextBlock(
+                        uri=f"viking://agent/instructions/strategy/{strategy}",
+                        content=f"[Strategy: {strategy}] {strat_prompt}",
+                        layer="L0",
+                        relevance_score=0.9,
+                        source="agent",
+                    ))
+                # Add task format instructions at L1
+                if depth in ["L1", "L2"]:
+                    contexts.append(ContextBlock(
+                        uri="viking://agent/instructions/task_format",
+                        content="When answering: 1) Provide clear reasoning, 2) Cite sources when possible, "
+                                "3) Acknowledge uncertainty, 4) Use structured format for complex answers.",
+                        layer="L1",
+                        relevance_score=0.8,
+                        source="agent",
+                    ))
+                return contexts
+        except Exception:
+            pass  # Fall through to legacy prompts
+
+        # Legacy: Strategy-specific system prompt
         strategy_prompts = {
             "breadth_first": "Prioritize diverse sources and multiple perspectives.",
             "depth_first": "Focus on authoritative primary sources and thorough analysis.",
@@ -360,6 +417,173 @@ class OpenVikingContext:
         
         return iteration_result
     
+    # ==================== Generic URI Storage ====================
+
+    async def save_to_uri(self, uri: str, data: dict) -> None:
+        """Save arbitrary data to a viking:// URI.
+
+        Used by VikingStorageSync for write-through persistence.
+        Writes to OpenViking server via HTTP API when connected,
+        falls back to in-memory store otherwise.
+        """
+        content_str = json.dumps(data, ensure_ascii=False)
+
+        # In-memory store (always, for read-back during this session)
+        block = ContextBlock(
+            uri=uri,
+            content=content_str,
+            layer="L1",
+            relevance_score=0.5,
+            source="write-through",
+        )
+        if uri not in self._memory_store:
+            self._memory_store[uri] = []
+        self._memory_store[uri].append(block)
+        if len(self._memory_store[uri]) > 50:
+            self._memory_store[uri] = self._memory_store[uri][-50:]
+
+        # Persist to OpenViking server via HTTP API
+        if self.enabled and self._connected:
+            try:
+                import tempfile, os, aiohttp
+
+                # Convert URI to a filesystem path under agent/
+                # e.g. "viking://agent/experiences/task123" -> "agent/experiences/task123.json"
+                path_part = uri.replace("viking://", "").rstrip("/")
+                if not path_part.endswith(".json"):
+                    path_part += ".json"
+
+                # Write to a temp file, then POST to OpenViking
+                with tempfile.NamedTemporaryFile(
+                    mode="w", suffix=".json", delete=False, encoding="utf-8"
+                ) as tmp:
+                    tmp.write(content_str)
+                    tmp_path = tmp.name
+
+                async with aiohttp.ClientSession(trust_env=False) as session:
+                    payload = {
+                        "path": tmp_path,
+                        "to": path_part,
+                        "reason": f"write-through from EvoAgent: {uri}",
+                        "wait": True,
+                        "timeout": 30.0,
+                    }
+                    headers = {"Content-Type": "application/json"}
+                    if self.api_key:
+                        headers["Authorization"] = f"Bearer {self.api_key}"
+
+                    async with session.post(
+                        f"{self.server_url}/api/v1/resources",
+                        json=payload,
+                        headers=headers,
+                        timeout=aiohttp.ClientTimeout(total=30),
+                    ) as resp:
+                        if resp.status == 200:
+                            logger.debug(f"Persisted to OpenViking: {uri} -> {path_part}")
+                        else:
+                            body = await resp.text()
+                            logger.warning(
+                                f"OpenViking persist failed for {uri}: HTTP {resp.status} {body[:200]}"
+                            )
+
+                # Clean up temp file
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+
+            except ImportError:
+                logger.debug("aiohttp not available, skipping OpenViking persistence")
+            except Exception as e:
+                logger.warning(f"OpenViking persist failed for {uri}: {e}")
+
+        logger.debug(f"Saved to URI {uri}")
+
+    # ==================== Read / Search Methods ====================
+
+    async def load_from_uri(self, uri: str) -> Optional[dict]:
+        """Load data from a viking:// URI.  Returns the stored dict or None.
+
+        In fallback mode: reads latest entry from _memory_store.
+        In real mode: HTTP GET to server (not yet implemented).
+        """
+        blocks = self._memory_store.get(uri)
+        if not blocks:
+            return None
+        # Return latest entry
+        try:
+            return json.loads(blocks[-1].content)
+        except (json.JSONDecodeError, IndexError):
+            return None
+
+    async def search_by_embedding(
+        self,
+        query_text: str,
+        uri_prefix: str,
+        max_results: int = 10,
+    ) -> List[dict]:
+        """Semantic search using embedding API.
+
+        Args:
+            query_text: Natural language query to embed and search
+            uri_prefix: Filter results to URIs starting with this prefix
+            max_results: Max results to return
+
+        Returns:
+            List of dicts with 'uri' and 'data' keys, sorted by relevance
+            (most relevant first).
+        """
+        if not self._connected:
+            return self._fallback_keyword_search(query_text, uri_prefix, max_results)
+
+        # Real mode: POST to server embedding endpoint (future)
+        # For now, fallback
+        return self._fallback_keyword_search(query_text, uri_prefix, max_results)
+
+    async def list_by_prefix(self, uri_prefix: str, limit: int = 100) -> List[dict]:
+        """List all entries under a URI prefix.
+
+        Returns list of dicts with 'uri' and 'data' keys.
+        """
+        results: List[dict] = []
+        for uri, blocks in self._memory_store.items():
+            if uri.startswith(uri_prefix) and blocks:
+                try:
+                    data = json.loads(blocks[-1].content)
+                    results.append({"uri": uri, "data": data})
+                except (json.JSONDecodeError, IndexError):
+                    continue
+            if len(results) >= limit:
+                break
+        return results
+
+    def _fallback_keyword_search(
+        self,
+        query_text: str,
+        uri_prefix: str,
+        max_results: int,
+    ) -> List[dict]:
+        """Simple keyword matching on _memory_store content (fallback mode)."""
+        keywords = [w.lower() for w in query_text.split() if len(w) > 2]
+        if not keywords:
+            return []
+
+        scored: List[tuple] = []
+        for uri, blocks in self._memory_store.items():
+            if not uri.startswith(uri_prefix) or not blocks:
+                continue
+            try:
+                content_str = blocks[-1].content.lower()
+                hits = sum(1 for kw in keywords if kw in content_str)
+                if hits > 0:
+                    data = json.loads(blocks[-1].content)
+                    scored.append((hits, uri, data))
+            except (json.JSONDecodeError, IndexError):
+                continue
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [{"uri": item[1], "data": item[2]} for item in scored[:max_results]]
+
     # ==================== Utility Methods ====================
     
     def get_statistics(self) -> Dict[str, Any]:
