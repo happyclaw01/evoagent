@@ -905,9 +905,30 @@ async def execute_multi_path_pipeline(
         try:
             parser_model = qp_cfg.get("model", "")
             parser_timeout = qp_cfg.get("timeout", 30.0)
-            llm_client = ClientFactory.create(cfg)
+            # QP-fix: ClientFactory is a function, not a class. Build a lightweight
+            # async wrapper directly so QuestionParser.chat_completion() works.
+            import openai as _openai
+            import os as _os
+            _cfg_raw = OmegaConf.to_container(cfg, resolve=True) if cfg else {}
+            _llm_cfg = _cfg_raw.get("llm", {}) if isinstance(_cfg_raw, dict) else {}
+            _qp_client = _openai.AsyncOpenAI(
+                api_key=_os.environ.get("OPENAI_API_KEY", ""),
+                base_url=_llm_cfg.get("base_url", "https://openrouter.ai/api/v1"),
+            )
+            _qp_model = parser_model or _llm_cfg.get("model_name", "")
+
+            class _QPClientWrapper:
+                async def chat_completion(self, messages, model=None, temperature=0.0, max_tokens=500):
+                    resp = await _qp_client.chat.completions.create(
+                        model=model or _qp_model,
+                        messages=messages,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                    )
+                    return resp.choices[0].message.content or ""
+
             parser = QuestionParser(
-                llm_client=llm_client,
+                llm_client=_QPClientWrapper(),
                 model=parser_model,
                 timeout=parser_timeout,
             )
@@ -1446,10 +1467,10 @@ async def execute_multi_path_pipeline(
                     # No GT: fall back to voted-answer match
                     won = (r[1].strip().lower() == best_answer.strip().lower()) if r[1] and best_answer else False
 
-                pool.record_result(target_island_name, strategy_def, question_type, won)
+                pool.record_result(island_id, strategy_def, question_type, won)
                 recorded += 1
                 logger.info(
-                    f"Recorded strategy result: island={target_island_name}, "
+                    f"Recorded strategy result: island={island_id}, "
                     f"strategy={strategy_def.id}, won={won}, qt={question_type}"
                 )
 
