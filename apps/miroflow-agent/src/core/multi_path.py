@@ -353,7 +353,24 @@ def _select_strategies(
     # all islands are empty.
     if qp_enabled and parsed_question is not None:
         try:
-            pool = IslandPool()
+            import os as _os
+            pool_dir = cfg.get("benchmark", {}).get("pool_dir", "") if cfg else ""
+            if not pool_dir:
+                for candidate in [
+                    _os.environ.get("ISLAND_POOL_DIR", ""),
+                    "data/island_pool",
+                    "../../data/island_pool",
+                ]:
+                    if candidate and Path(candidate).exists():
+                        pool_dir = candidate
+                        break
+            if pool_dir:
+                from .strategy_island import LocalJsonBackend, IslandStore
+                _backend = LocalJsonBackend(Path(pool_dir))
+                _island_store = IslandStore(primary=_backend)
+                pool = _island_store.load()
+            else:
+                pool = IslandPool()
             qt = parsed_question.question_type if parsed_question else None
             sampled = pool.sample_all(qt)
             # Filter out None (empty islands) and compile
