@@ -139,16 +139,19 @@ class QuestionParser:
             return ParsedQuestion.default()
 
     async def _call_llm(self, prompt: str) -> str:
-        """QP-106: 调用 LLM（可用小模型）"""
-        # 具体实现取决于 ClientFactory 接口
-        # 支持 model 覆盖，允许用 GPT-4o-mini 级别
-        response = await self._client.chat_completion(
-            messages=[{"role": "user", "content": prompt}],
-            model=self._model or None,
-            temperature=0.0,       # 确定性输出
-            max_tokens=500,        # 结构化输出不需要多
+        """QP-106: 调用 LLM，适配 base_client.create_message 接口"""
+        response, _ = await self._client.create_message(
+            system_prompt="",
+            message_history=[{"role": "user", "content": prompt}],
+            tool_definitions=[],
         )
-        return response
+        # response is a dict with choices[0].message.content
+        if response is None:
+            raise ValueError("LLM returned None response")
+        # Handle both dict and object styles
+        if isinstance(response, dict):
+            return response["choices"][0]["message"]["content"] or ""
+        return response.choices[0].message.content or ""
 
     @staticmethod
     def _extract_json(text: str) -> dict:

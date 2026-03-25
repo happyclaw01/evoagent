@@ -905,30 +905,9 @@ async def execute_multi_path_pipeline(
         try:
             parser_model = qp_cfg.get("model", "")
             parser_timeout = qp_cfg.get("timeout", 30.0)
-            # QP-fix: ClientFactory is a function, not a class. Build a lightweight
-            # async wrapper directly so QuestionParser.chat_completion() works.
-            import openai as _openai
-            import os as _os
-            _cfg_raw = OmegaConf.to_container(cfg, resolve=True) if cfg else {}
-            _llm_cfg = _cfg_raw.get("llm", {}) if isinstance(_cfg_raw, dict) else {}
-            _qp_client = _openai.AsyncOpenAI(
-                api_key=_os.environ.get("OPENAI_API_KEY", ""),
-                base_url=_llm_cfg.get("base_url", "https://openrouter.ai/api/v1"),
-            )
-            _qp_model = parser_model or _llm_cfg.get("model_name", "")
-
-            class _QPClientWrapper:
-                async def chat_completion(self, messages, model=None, temperature=0.0, max_tokens=500):
-                    resp = await _qp_client.chat.completions.create(
-                        model=model or _qp_model,
-                        messages=messages,
-                        temperature=temperature,
-                        max_tokens=max_tokens,
-                    )
-                    return resp.choices[0].message.content or ""
-
+            llm_client = ClientFactory(task_id="qp_parser", cfg=cfg)
             parser = QuestionParser(
-                llm_client=_QPClientWrapper(),
+                llm_client=llm_client,
                 model=parser_model,
                 timeout=parser_timeout,
             )
