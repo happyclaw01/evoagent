@@ -306,16 +306,40 @@ class StrategyIsland:
             self._records.remove(new_record)
             return False
 
-    # ── SI-106: 采样 ─────────────────────────────
+    # ── SI-106: 采样（UCB1）─────────────────────
+
+    # UCB 探索系数，sqrt(2) 是理论最优值
+    UCB_C = 1.414
+    # 尝试次数为 0 时的冷启动奖励分，保证新策略优先被探索
+    UCB_COLD_BONUS = 1.0
 
     def sample(self, question_type: Optional[str] = None) -> Optional[StrategyDefinition]:
-        """题型最高胜率策略。空岛返回 None。"""
+        """UCB1 采样：exploitation + exploration 平衡。空岛返回 None。
+
+        score_i = win_rate_i + C * sqrt(ln(N) / n_i)
+          N  = 岛内所有策略总尝试次数
+          n_i = 策略 i 的尝试次数
+        未尝试过的策略给 cold bonus，优先探索。
+        """
+        import math
         if not self._records:
             return None
-        best = max(
-            self._records,
-            key=lambda r: r.win_rate(question_type),
-        )
+
+        # 岛内总尝试次数
+        total_attempts = sum(r.total_attempts for r in self._records)
+
+        def ucb_score(r: StrategyRecord) -> float:
+            win_rate = r.win_rate(question_type)
+            n_i = r.total_attempts
+            if n_i == 0:
+                # 从未尝试过，给最高冷启动奖励
+                return win_rate + self.UCB_COLD_BONUS + self.UCB_C
+            if total_attempts == 0:
+                return win_rate + self.UCB_COLD_BONUS
+            exploration = self.UCB_C * math.sqrt(math.log(total_attempts) / n_i)
+            return win_rate + exploration
+
+        best = max(self._records, key=ucb_score)
         return best.strategy
 
     # ── 记录管理 ──────────────────────────────────
