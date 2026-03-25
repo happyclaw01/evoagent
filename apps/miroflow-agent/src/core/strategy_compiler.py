@@ -203,6 +203,242 @@ TERMINATION_TEMPLATES: Dict[str, str] = {
 # ──── QP-201: 8 维 TEMPLATES 主字典 ────
 # 单一字典，将维度名映射到对应的模板字典
 
+# ──── Evolved dimension value templates (auto-generated from c3 evolution) ────
+
+FRAMING_TEMPLATES.update({
+    "origin_causal_graph": (
+        "[视角: 因果溯源图]\n"
+        "你是一个因果推理专家。从结果事件出发，向上游追溯所有可能的因果路径，构建完整的因果图谱。"
+        "识别根因节点和关键传导链条，区分直接原因与间接原因。"
+    ),
+    "closed-loop perturbation mapping": (
+        "[视角: 闭环扰动映射]\n"
+        "你是一个系统动力学专家。识别事件中的反馈回路和闭环结构，"
+        "分析关键变量被扰动后如何通过回路放大或衰减。重点关注正反馈（加速）和负反馈（稳定）机制。"
+    ),
+    "mechanism_archetype_recombination": (
+        "[视角: 机制原型重组]\n"
+        "你是一个跨领域类比专家。将当前事件拆解为基本机制原型（如博弈、传染、阈值触发等），"
+        "然后搜索历史上相同机制组合在不同领域的表现，借此推断可能结果。"
+    ),
+    "liquidity_regime_shift": (
+        "[视角: 流动性体制转换]\n"
+        "你是一个市场体制分析专家。关注流动性条件（资金、注意力、参与度）是否正在发生结构性转换。"
+        "识别体制切换的前兆信号，区分正常波动与体制跃迁。"
+    ),
+    "falsificationist_multi_model": (
+        "[视角: 多模型证伪]\n"
+        "你是一个证伪主义分析师。同时构建多个竞争性解释模型，为每个模型寻找最具杀伤力的反面证据。"
+        "优先淘汰无法存活的模型，保留尚未被证伪的候选。"
+    ),
+})
+
+QUERY_TEMPLATES.update({
+    "upstream_first_graph_expansion": (
+        "[搜索策略: 上游优先扩展]\n"
+        "从事件的上游原因开始搜索，逐层向下游展开。先搜根因和前置条件，再搜传导路径和下游影响。"
+        "确保因果链完整，不跳过中间环节。"
+    ),
+    "contradiction-seeking triangulation across adversarial, edge-case, and cross-context probes": (
+        "[搜索策略: 矛盾三角交叉验证]\n"
+        "三管齐下搜索矛盾信息：(1) 搜索对立方的强论点；(2) 搜索极端边界条件下的例外情况；"
+        "(3) 搜索不同领域/地区的类似事件是否出现不同结果。三条线索交叉验证。"
+    ),
+    "contrastive_case_expansion": (
+        "[搜索策略: 对比案例扩展]\n"
+        "搜索与当前事件高度相似但结果不同的对比案例。"
+        "使用 'similar but different outcome'、'为什么A成功B失败' 等思路。通过对比找出决定结果的关键差异变量。"
+    ),
+    "microstructure_state_scan": (
+        "[搜索策略: 微观结构扫描]\n"
+        "深入搜索事件的微观结构状态：市场的订单流、社交媒体的情绪分布、投票的逐区数据等底层颗粒度信息。"
+        "从微观信号中捕捉宏观趋势的早期迹象。"
+    ),
+    "uncertainty_maximizing_refutation_first": (
+        "[搜索策略: 最大不确定性优先证伪]\n"
+        "优先搜索能最大程度动摇当前判断的信息。找出你最不确定的关键假设，针对性搜索能证伪该假设的证据。"
+        "先破后立，用证伪来收窄不确定性。"
+    ),
+})
+
+EVIDENCE_TEMPLATES.update({
+    "news_wire+official_feeds": (
+        "[证据来源: 通讯社+官方信源]\n"
+        "优先查找主要通讯社（路透、美联、新华社）快讯和官方机构发布的声明、公报、新闻稿。"
+        "以速度和权威性为第一优先级。"
+    ),
+    "primary_documents+protocol_telemetry+registry_logs": (
+        "[证据来源: 原始文件+协议遥测+注册日志]\n"
+        "优先查找第一手原始文件（法律文本、合同、会议记录）、协议层面的技术遥测数据（链上数据、API日志）、"
+        "以及公开注册记录（专利、域名、企业登记）。"
+    ),
+    "official_data + real_time_feeds": (
+        "[证据来源: 官方数据+实时信源]\n"
+        "结合官方统计数据（政府公报、央行数据、监管文件）和实时信息流（新闻快讯、社交媒体、实时市场数据）。"
+        "官方数据定基调，实时信源捕动态。"
+    ),
+    "micro-interventions/AB tests + process trace logs + open sensor telemetry + ethnographic micro-observations + high-fidelity simulations": (
+        "[证据来源: 多层实证数据]\n"
+        "搜集五类证据：(1) 小规模实验/AB测试结果；(2) 过程追踪日志；(3) 公开传感器和遥测数据；"
+        "(4) 实地观察和微观民族志记录；(5) 高保真模拟/仿真结果。多层数据交叉印证。"
+    ),
+    "authoritative_real_time": (
+        "[证据来源: 权威实时信源]\n"
+        "优先查找具有权威性的实时信息源：官方新闻发布会、央行声明、监管机构公告、权威媒体突发报道。"
+        "兼顾权威性和时效性，拒绝未经验证的小道消息。"
+    ),
+    "archival_primary_plus_structured_datasets": (
+        "[证据来源: 档案原始文献+结构化数据集]\n"
+        "优先查找历史档案、原始文献（政策文件、历史记录、原始报告）"
+        "以及公开结构化数据集（政府统计、学术数据库、国际组织数据）。用历史深度支撑判断。"
+    ),
+    "order_book, order_flow, options_skew, funding_basis, dark_pool_prints": (
+        "[证据来源: 市场微观结构数据]\n"
+        "优先查找订单簿深度、资金流向、期权偏度（skew）、资金费率/基差、暗池成交数据。"
+        "这些微观结构信号反映知情交易者的真实头寸方向。"
+    ),
+    "official_sources": (
+        "[证据来源: 官方信源]\n"
+        "优先查找政府、监管机构、国际组织的官方发布。"
+        "包括法规文件、政策声明、统计公报、官方新闻稿。以一手官方信息为最高优先级。"
+    ),
+    "primary_documents_and_raw_datasets": (
+        "[证据来源: 一手文件与原始数据]\n"
+        "优先查找原始文件（法案文本、合同、财报原文、会议纪要）和原始数据集（统计原始表、调查微数据）。"
+        "拒绝二手解读，直接从源头获取信息。"
+    ),
+})
+
+RETRIEVAL_TEMPLATES.update({
+    "moderate": (
+        "[搜索深度: 适中]\n"
+        "对每个来源进行中等深度的阅读。抓取关键结论和核心论据，但不必追溯每一条引用链。"
+        "在效率和深度之间取平衡。"
+    ),
+    "deep_trace": (
+        "[搜索深度: 深度追溯]\n"
+        "对关键证据链进行全链条追溯。从结论追到论据，从论据追到原始数据，从引用追到原文。"
+        "验证每个环节是否成立，不放过任何跳跃推理。"
+    ),
+    "breadth-first loop sweep followed by leverage-focused drilldown on high-sensitivity arcs": (
+        "[搜索深度: 先广扫后深钻]\n"
+        "第一阶段：广度优先，快速扫描所有相关反馈回路和因果弧线。"
+        "第二阶段：识别出对结果最敏感的关键弧线，对其进行杠杆点聚焦式深度钻探。"
+    ),
+    "progressive_deepening": (
+        "[搜索深度: 逐步加深]\n"
+        "分轮次搜索，每轮加深一层。第一轮抓概览和关键事实；第二轮深入核心争议点；"
+        "第三轮追溯原始数据和边缘证据。每轮根据上轮结果调整方向。"
+    ),
+    "adaptive_deep": (
+        "[搜索深度: 自适应深度]\n"
+        "根据信息价值动态调整搜索深度。对高不确定性、高影响力的关键节点深入挖掘；"
+        "对已有共识的低争议点快速略过。把精力集中在边际信息价值最高的地方。"
+    ),
+    "breadth_first_wide": (
+        "[搜索深度: 广度优先宽扫]\n"
+        "最大化覆盖面，广泛搜索所有相关维度和信息源。每个来源快速提取关键信号，不在单一来源上过度停留。"
+        "目标是构建全景视图，不遗漏重要方向。"
+    ),
+})
+
+UPDATE_TEMPLATES.update({
+    "event_driven_checkpointing": (
+        "[更新策略: 事件驱动检查点]\n"
+        "不按固定节奏更新，而是在关键事件发生时触发更新。"
+        "定义关键事件清单（如政策发布、数据公布、突发事件），每次触发时重新评估判断并记录检查点。"
+    ),
+    "invariance-weighted structural revision (topology-first, then parameters; prioritize interventional outcomes over observational signals)": (
+        "[更新策略: 不变量加权结构修正]\n"
+        "优先修正因果结构（哪些因素影响哪些），再调整参数权重。"
+        "当观测数据与干预实验结果矛盾时，以干预结果为准。保持已验证的不变关系，只修正被新证据打破的部分。"
+    ),
+    "bayesian_regime_switching": (
+        "[更新策略: 贝叶斯体制切换]\n"
+        "维护多个体制假设（如'正常态'与'危机态'），用贝叶斯方式更新各体制的概率权重。"
+        "当体制切换概率超过阈值时，整体切换预测框架，而非渐进微调。"
+    ),
+    "state_triggered_streaming": (
+        "[更新策略: 状态触发流式更新]\n"
+        "持续监控关键状态变量，当变量越过预设阈值时立即触发更新。"
+        "更新幅度与状态变化幅度成正比。在阈值之间保持判断稳定，避免噪声驱动的频繁修正。"
+    ),
+    "sequential_probability_ratio": (
+        "[更新策略: 序贯概率比更新]\n"
+        "每获取一条新证据，计算该证据在正反假设下的似然比，累积更新。"
+        "当累积似然比突破预设上下界时做出明确判断，否则继续收集证据。避免过早下结论。"
+    ),
+})
+
+AUDIT_TEMPLATES.update({
+    "provenance_chain_verification": (
+        "[自审策略: 来源链验证]\n"
+        "对每条关键证据追溯完整的来源链：谁说的→基于什么数据→数据从哪来→原始测量是否可靠。"
+        "任何断链或不可追溯的环节都要标记为可信度折扣。"
+    ),
+    "assumption_audit + timestamp_verification": (
+        "[自审策略: 假设审计+时间戳校验]\n"
+        "逐一列出你的隐含假设并检查其是否成立。"
+        "同时验证所有引用信息的时间戳——过时的信息可能导致错误判断。标记所有超过合理时效的证据。"
+    ),
+    "loop-integrity audit: conservation/delay closure checks + do-calculus consistency + counterfactual stress tests": (
+        "[自审策略: 回路完整性审计]\n"
+        "三重检查：(1) 因果回路是否守恒、延迟是否闭合；"
+        "(2) 因果推断是否符合 do-演算一致性；(3) 用反事实压力测试——如果关键变量不存在，结论是否仍成立。"
+    ),
+    "unit_scale_check": (
+        "[自审策略: 量纲与量级检查]\n"
+        "检查所有数字的单位和数量级是否合理。百万与十亿是否搞混？百分比与基点是否弄错？"
+        "时间单位（日/月/年）是否对齐？数量级错误是预测中最常见的低级失误。"
+    ),
+    "retrodictive_backtest_with_synthetic_controls": (
+        "[自审策略: 回溯测试+合成对照]\n"
+        "用你的预测逻辑去'预测'已知的历史事件，检验是否能命中。"
+        "构建合成对照组（相似但未发生该事件的情境），验证你的因果逻辑是否真正有区分力。"
+    ),
+    "counterfactual_lob_replay + cross_venue_leadlag + signal_orthogonality": (
+        "[自审策略: 反事实回放+跨场所验证+信号正交性]\n"
+        "三维自审：(1) 回放历史数据，检验你的信号在反事实场景下是否仍有效；"
+        "(2) 检查信号在不同场所的领先滞后关系是否一致；(3) 确认多个信号之间是正交的而非重复计算同一信息。"
+    ),
+    "blinded_rotating_red_team": (
+        "[自审策略: 盲审轮换红队]\n"
+        "假设有一个不知道你结论的红队在审查你的推理。轮换审查角度：第一轮审证据质量，"
+        "第二轮审逻辑链条，第三轮审替代解释。每轮都尝试推翻你的结论。"
+    ),
+})
+
+TERMINATION_TEMPLATES.update({
+    "root_path_closure+propagation_plateau": (
+        "[停止条件: 根路径闭合+传播平台期]\n"
+        "当所有因果根路径都已追溯到源头（闭合），且新的信息传播不再改变下游判断（进入平台期）时停止。"
+        "两个条件同时满足才终止搜索。"
+    ),
+    "intervention-stability plateau: stop when successive novel perturbations no longer shift loop rankings or predictions beyond a small epsilon": (
+        "[停止条件: 干预稳定性平台期]\n"
+        "持续引入新的扰动假设来测试你的判断。"
+        "当连续多次引入新扰动后，预测结果的变化都小于一个很小的阈值时，判定已达到稳定，停止搜索。"
+    ),
+    "evidence_saturation_and_posterior_stability": (
+        "[停止条件: 证据饱和+后验稳定]\n"
+        "双重停止条件：(1) 新搜索不再带来新信息（证据饱和）；"
+        "(2) 概率判断在连续多轮更新后变化极小（后验分布稳定）。两者同时满足才停止。"
+    ),
+    "regime_stability_plateau": (
+        "[停止条件: 体制稳定平台期]\n"
+        "当对当前所处体制（正常/转换/危机等）的判断在连续多轮搜索后保持稳定，"
+        "且没有新的体制切换信号出现时停止。如果出现体制切换迹象，重新激活搜索。"
+    ),
+    "sprt_bounds_or_counterevidence_exhausted": (
+        "[停止条件: 序贯检验边界或反证穷尽]\n"
+        "两个停止条件取先到者：(1) 累积似然比突破序贯概率比检验的上界或下界，可以做出明确判断；"
+        "(2) 已穷尽所有可能的反面证据来源，无法找到更多反证。"
+    ),
+})
+
+
+# ──── QP-201: 8 维 TEMPLATES 主字典 ────
+
 TEMPLATES: Dict[str, Dict[str, str]] = {
     "hypothesis_framing": FRAMING_TEMPLATES,
     "query_policy": QUERY_TEMPLATES,

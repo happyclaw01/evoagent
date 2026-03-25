@@ -20,17 +20,26 @@ logger = logging.getLogger("miroflow_agent")
 class OpenAIClient(BaseClient):
     def _create_client(self) -> Union[AsyncOpenAI, OpenAI]:
         """Create LLM client"""
-        http_client_args = {"headers": {"x-upstream-session-id": self.task_id}}
+        import httpx as _httpx
+        # SI-fix: Set explicit timeout to avoid CLOSE-WAIT hangs through proxies.
+        # connect=30s, read=300s (LLM responses can be slow), write=30s, pool=30s
+        _timeout = _httpx.Timeout(connect=30.0, read=300.0, write=30.0, pool=30.0)
+        http_client_args = {
+            "headers": {"x-upstream-session-id": self.task_id},
+            "timeout": _timeout,
+        }
         if self.async_client:
             return AsyncOpenAI(
                 api_key=self.api_key,
                 base_url=self.base_url,
+                timeout=_timeout,
                 http_client=DefaultAsyncHttpxClient(**http_client_args),
             )
         else:
             return OpenAI(
                 api_key=self.api_key,
                 base_url=self.base_url,
+                timeout=_timeout,
                 http_client=DefaultHttpxClient(**http_client_args),
             )
 

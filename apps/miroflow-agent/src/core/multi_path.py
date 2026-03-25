@@ -1367,8 +1367,66 @@ async def execute_multi_path_pipeline(
     # WV-303: Record win/loss results back to StrategyIsland after ground truth available
     if qp_cfg.get("enabled", False) and parsed_question is not None:
         try:
-            pool = IslandPool()
+            import os as _os
+            pool_dir = cfg.get("benchmark", {}).get("pool_dir", "") if cfg else ""
+            if not pool_dir:
+                for candidate in [
+                    _os.environ.get("ISLAND_POOL_DIR", ""),
+                    "data/island_pool",
+                    "../../data/island_pool",
+                ]:
+                    if candidate and Path(candidate).exists():
+                        pool_dir = candidate
+                        break
+
+            pool = None
+            _island_store = None
+            _pool_lock = None
+            if pool_dir:
+                from .strategy_island import LocalJsonBackend, IslandStore
+                import filelock as _filelock
+                _backend = LocalJsonBackend(Path(pool_dir))
+                _island_store = IslandStore(primary=_backend)
+                # SI-fix: File lock to prevent concurrent write races
+                _pool_lock = _filelock.FileLock(str(Path(pool_dir) / ".pool.lock"), timeout=60)
+                _pool_lock.acquire()
+                pool = _island_store.load()
+
+            if pool is None:
+                pool = IslandPool()
+
             question_type = parsed_question.question_type
+            recorded = 0
+
+            # --- Helper: normalize GT/answer for comparison ---
+            # GT may come as "['A']", "['B', 'C']", "A", etc.
+            def _normalize_answer(raw: str) -> set:
+                """Parse ground-truth or path answer into a set of uppercase option letters."""
+                import ast as _ast
+                import re as _re
+                s = str(raw).strip()
+                # 1) Try to parse the whole string as a Python literal first
+                #    Handles "['A']", "['B', 'C']", "('A',)", etc.
+                try:
+                    parsed = _ast.literal_eval(s)
+                    if isinstance(parsed, (list, tuple, set)):
+                        return {str(x).strip().upper() for x in parsed}
+                    if isinstance(parsed, str):
+                        s = parsed  # unwrap quoted string, continue below
+                except (ValueError, SyntaxError):
+                    pass
+                # 2) Strip surrounding braces/brackets: {A} -> A, {A, B} -> A, B
+                s = _re.sub(r'^[\{\[\(]+|[\}\]\)]+$', '', s).strip()
+                # 3) Split by comma (handles "A", "B, C", "A,D,I")
+                return {x.strip().upper() for x in s.split(",") if x.strip()}
+
+            gt_set = _normalize_answer(ground_truth) if ground_truth is not None else None
+
+            # Determine GT-based correctness for the final answer
+            gt_correct = None
+            if gt_set is not None and best_answer:
+                gt_correct = (_normalize_answer(best_answer) == gt_set)
+
             for i, r in enumerate(processed_results):
                 if r is None or not isinstance(r[4], dict):
                     continue
@@ -1378,14 +1436,44 @@ async def execute_multi_path_pipeline(
                 island_id = getattr(strategy_def, "island_id", None)
                 if not island_id:
                     continue
-                # Determine if this path won (its answer was selected)
-                won = (r[1].strip().lower() == best_answer.strip().lower()) if r[1] and best_answer else False
-                pool.record_result(island_id, strategy_def, question_type, won)
+
+                # Determine win: use GT if available, else fall back to voted-answer match
+                if gt_set is not None:
+                    # GT available: path wins if its answer matches GT
+                    path_answer_set = _normalize_answer(r[1]) if r[1] else set()
+                    won = (path_answer_set == gt_set)
+                else:
+                    # No GT: fall back to voted-answer match
+                    won = (r[1].strip().lower() == best_answer.strip().lower()) if r[1] and best_answer else False
+
+                pool.record_result(target_island_name, strategy_def, question_type, won)
+                recorded += 1
+                logger.info(
+                    f"Recorded strategy result: island={target_island_name}, "
+                    f"strategy={strategy_def.id}, won={won}, qt={question_type}"
+                )
+
+            # SI-301: Save pool back to disk after recording results
+            if _island_store is not None and recorded > 0:
+                _island_store.save(pool)
+                logger.info(f"Persisted IslandPool to {pool_dir} after recording {recorded} results")
+
+            # SI-fix: Release file lock after save
+            if _pool_lock is not None:
+                _pool_lock.release()
+                _pool_lock = None
+
             master_log.log_step(
                 "info", "MultiPath | Strategy Records",
                 f"Recorded results for {len(processed_results)} paths, question_type={question_type}",
             )
         except Exception as e:
+            # SI-fix: Ensure lock is released on error
+            if _pool_lock is not None:
+                try:
+                    _pool_lock.release()
+                except Exception:
+                    pass
             logger.warning(f"Strategy result recording failed: {e}")
 
     master_log.log_step(
