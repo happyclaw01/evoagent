@@ -905,7 +905,8 @@ async def execute_multi_path_pipeline(
         try:
             parser_model = qp_cfg.get("model", "")
             parser_timeout = qp_cfg.get("timeout", 30.0)
-            llm_client = ClientFactory(task_id="qp_parser", cfg=cfg)
+            _qp_log = TaskLog(task_id="qp_parser", log_dir="/tmp")
+            llm_client = ClientFactory(task_id="qp_parser", cfg=cfg, task_log=_qp_log)
             parser = QuestionParser(
                 llm_client=llm_client,
                 model=parser_model,
