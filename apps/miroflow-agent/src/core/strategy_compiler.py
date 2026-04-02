@@ -437,6 +437,268 @@ TERMINATION_TEMPLATES.update({
 })
 
 
+# ──── EE-patch: 补全进化生成的维度值模板 (45 entries) ────
+
+FRAMING_TEMPLATES.update({
+    "auction_intent_mapping": (
+        "[视角: 拍卖意图映射]\n"
+        "你是一个市场微观结构专家。通过分析买卖双方的出价模式、挂单分布和成交节奏，"
+        "推断参与者的真实意图和信息优势。从价格发现机制反推事件走向。"
+    ),
+    "downstream_impact_backprop": (
+        "[视角: 下游影响反向传播]\n"
+        "你是一个影响链分析专家。从事件的下游后果出发，反向推导上游原因和传导路径。"
+        "关注谁会受到影响、影响有多大、传导延迟是多久，据此反推事件本身的性质和规模。"
+    ),
+    "failure_mode_inversion": (
+        "[视角: 失效模式反演]\n"
+        "你是一个风险分析专家。列出事件可能失效的所有模式（不发生、部分发生、延迟发生、反转等），"
+        "分析每种失效模式的前提条件是否成立。通过排除不可能的失效模式来收窄预测。"
+    ),
+    "interface-contract causal ledger": (
+        "[视角: 接口-契约因果账本]\n"
+        "你是一个系统接口分析专家。将事件拆解为多个参与方之间的'契约'关系，"
+        "追踪每个接口的承诺、交付和违约情况。通过契约履行状态推断事件走向。"
+    ),
+    "path_dependence_microhistory_mapping": (
+        "[视角: 路径依赖微观历史映射]\n"
+        "你是一个路径依赖分析专家。追踪事件的微观历史轨迹，识别关键分叉点和锁定效应。"
+        "分析当前状态是如何被历史路径约束的，哪些选择空间已被关闭，哪些仍然开放。"
+    ),
+})
+
+QUERY_TEMPLATES.update({
+    "assumption_attack_surface": (
+        "[搜索策略: 假设攻击面]\n"
+        "识别你当前判断中最脆弱的假设，针对性搜索能击破该假设的证据。"
+        "每轮搜索瞄准一个假设的薄弱点，优先攻击最关键的假设。"
+    ),
+    "contradiction-seeking triangulation across adversarial, edge-case, and cross-context probes, "
+    "with provenance-locked timestamped multi-source retrieval (official + independent captures) "
+    "and explicit unit/order probes": (
+        "[搜索策略: 带溯源锁定的矛盾三角交叉验证]\n"
+        "三管齐下搜索矛盾信息：(1) 对立方论点；(2) 边界条件例外；(3) 跨领域对比。"
+        "所有证据必须锁定时间戳和来源出处，并显式验证单位和数量级。"
+    ),
+    "contrastive_case_expansion_with_timestamped_multisource_captures": (
+        "[搜索策略: 带时间戳的对比案例扩展]\n"
+        "搜索高度相似但结果不同的对比案例，每条证据记录精确时间戳和多个独立来源。"
+        "通过时间线对比找出导致不同结果的关键差异变量。"
+    ),
+    "eventless_signal_pivoting": (
+        "[搜索策略: 无事件信号枢轴]\n"
+        "不只搜索已发生的事件，也搜索'应该发生但没发生'的信号。"
+        "缺席的信号（如未发布的声明、未出现的反应）可能比已发生的事件更有信息量。"
+    ),
+    "feature_signature_neighbor_hunt": (
+        "[搜索策略: 特征签名邻近搜索]\n"
+        "提取当前事件的关键特征签名（数值指标、参与者组合、时间模式），"
+        "搜索历史上具有最相似特征签名的案例，分析其结果分布。"
+    ),
+    "interface-first dependency elicitation with progressive disclosure and contract probing": (
+        "[搜索策略: 接口优先依赖挖掘]\n"
+        "从系统接口和依赖关系出发搜索。先找出关键参与方之间的接口点，"
+        "逐步深入挖掘每个接口的约束条件和契约状态。渐进式披露，由浅入深。"
+    ),
+    "perturbation_guided_active_probing": (
+        "[搜索策略: 扰动引导主动探测]\n"
+        "通过假设性扰动来引导搜索方向。问自己'如果X发生变化，结果会怎样？'"
+        "然后搜索X是否真的在变化。用假设驱动搜索，而非被动收集信息。"
+    ),
+    "time_gated_snapshot_series": (
+        "[搜索策略: 时间门控快照序列]\n"
+        "按固定时间间隔搜索事件的状态快照，构建完整的时间序列。"
+        "每个时间点获取多个来源的快照，对比不同时间点的变化趋势。"
+    ),
+    "timestamped_multisource_snapshot_scan": (
+        "[搜索策略: 带时间戳的多源快照扫描]\n"
+        "对每个关键信息点，同时搜索多个独立来源并记录精确时间戳。"
+        "对比同一时间不同来源的描述差异，以及同一来源不同时间的变化。"
+    ),
+    "triangulate": (
+        "[搜索策略: 三角验证]\n"
+        "对每个关键判断，从至少三个不同角度搜索验证：官方来源、独立媒体、市场/数据。"
+        "三个方向一致才确认，有分歧则深入调查分歧原因。"
+    ),
+})
+
+EVIDENCE_TEMPLATES.update({
+    "anomaly_reports_and_field_traces": (
+        "[证据来源: 异常报告与现场痕迹]\n"
+        "优先查找异常事件报告、现场调查记录、故障日志和异常检测数据。"
+        "异常信号往往是趋势变化的最早指标。"
+    ),
+    "auction_imbalance_and_volume_profile + volatility_surface_shape + positioning_flows + relative_value_spreads": (
+        "[证据来源: 市场深层结构数据]\n"
+        "查找拍卖不平衡度、成交量分布、波动率曲面形态、持仓流向和相对价值利差。"
+        "这些深层结构数据反映机构投资者的真实判断和头寸方向。"
+    ),
+    "declassified_archives_oral_histories_and_procurement_records": (
+        "[证据来源: 解密档案与采购记录]\n"
+        "查找已解密的政府档案、口述历史记录和采购/招标记录。"
+        "这些非常规来源经常包含公开报道中缺失的关键细节。"
+    ),
+    "network_edge_measurements+diffusion_graphs+cache_headers+broadcast_metadata": (
+        "[证据来源: 网络边缘测量与传播图谱]\n"
+        "查找网络传播路径数据、信息扩散图谱、缓存时间戳和广播元数据。"
+        "从信息传播的技术痕迹中推断事件的真实时序和影响范围。"
+    ),
+    "official_plus_market": (
+        "[证据来源: 官方+市场双信源]\n"
+        "同时查找官方发布（政府公报、监管文件）和市场定价信息（预测市场、赔率、期货）。"
+        "官方信源定方向，市场信源定概率。两者交叉验证。"
+    ),
+    "system-artifact corpus (specs/standards, design docs, code/config diffs, runbooks, "
+    "incident postmortems, maintenance tickets) + structured expert elicitation": (
+        "[证据来源: 系统工件语料+专家访谈]\n"
+        "查找系统相关的技术文档（规格、设计文档、变更记录、故障复盘、运维工单）"
+        "以及结构化的专家意见。技术工件中隐藏着决策者的真实约束和优先级。"
+    ),
+})
+
+RETRIEVAL_TEMPLATES.update({
+    "adaptive_bandit_zoom": (
+        "[搜索深度: 自适应多臂老虎机缩放]\n"
+        "像多臂老虎机一样分配搜索深度：先对所有方向浅层探索，"
+        "然后把更多深度预算分配给回报最高的方向。动态平衡探索与利用。"
+    ),
+    "breadth_first_shallow_then_targeted_punctures": (
+        "[搜索深度: 先广扫后定点穿透]\n"
+        "第一阶段：广度优先浅层扫描所有相关方向。"
+        "第二阶段：选择 2-3 个最有价值的点进行定点深度穿透，获取关键细节。"
+    ),
+    "deep_baseline": (
+        "[搜索深度: 深度基线]\n"
+        "对所有来源统一进行深度阅读和分析。不做浅层扫描，每个来源都完整阅读。"
+        "追求理解的深度而非覆盖的广度。"
+    ),
+    "funnel_wide_to_micro_confirm": (
+        "[搜索深度: 漏斗式从广到微确认]\n"
+        "漏斗型搜索：最上层广泛撒网→中层筛选关键信息→最底层对核心事实进行微观确认。"
+        "每一层淘汰不相关的信息，最终聚焦到最关键的几个事实点。"
+    ),
+    "just-in-time frontier sampling with an uncertainty budget "
+    "(thin slices across many interfaces, then deepen only where contracts conflict)": (
+        "[搜索深度: 即时前沿采样+不确定性预算]\n"
+        "在多个接口方向上做薄层采样，只在发现矛盾/冲突的地方投入深度预算。"
+        "不确定性最大的点获得最多搜索资源。"
+    ),
+    "progressive_stratified_sampling": (
+        "[搜索深度: 渐进分层采样]\n"
+        "将信息源分层（核心层、辅助层、边缘层），从核心层开始逐层加深。"
+        "每层采样后评估是否需要进入下一层，避免在低价值层浪费深度。"
+    ),
+})
+
+UPDATE_TEMPLATES.update({
+    "bayesian_decay_revision": (
+        "[更新策略: 贝叶斯衰减修正]\n"
+        "用贝叶斯方式更新判断，同时对旧证据施加时间衰减权重。"
+        "越新的证据权重越高，越旧的证据权重逐渐衰减。防止过时信息干扰判断。"
+    ),
+    "case_based_ensemble_with_similarity_decay": (
+        "[更新策略: 基于案例的集成+相似度衰减]\n"
+        "维护一组历史类似案例，每个案例按与当前事件的相似度加权投票。"
+        "随着新证据揭示差异，降低不再相似的案例的权重。"
+    ),
+    "hypothesis_wager_loop": (
+        "[更新策略: 假设押注循环]\n"
+        "为每个竞争假设分配'筹码'，每获取一条新证据就根据似然度重新分配筹码。"
+        "当某个假设的筹码超过阈值时确认，低于阈值时淘汰。循环直到收敛。"
+    ),
+    "surprise-triggered contract revision: constraints-first reconciliation, "
+    "then causal-link rewire; Bayesian weighting with soft-consistency relaxation": (
+        "[更新策略: 惊讶触发的契约修正]\n"
+        "当新证据与预期严重不符（惊讶度高）时触发更新。先修正约束条件，再重连因果链条。"
+        "用贝叶斯权重更新，允许软一致性放松以适应新信息。"
+    ),
+    "surprise_weighted_model_averaging": (
+        "[更新策略: 惊讶加权模型平均]\n"
+        "维护多个预测模型，用惊讶度（预测与实际的偏差）来重新加权。"
+        "预测准确的模型权重上升，预测失败的模型权重下降。最终取加权平均。"
+    ),
+})
+
+AUDIT_TEMPLATES.update({
+    "adversarial_path_consistency_testing": (
+        "[自审策略: 对抗路径一致性测试]\n"
+        "从不同起点出发推理到同一结论，检查路径是否一致。"
+        "如果从不同角度得出矛盾结论，说明推理中有隐藏的错误假设。"
+    ),
+    "causal-ledger reconciliation audit: contract satisfiability checks, "
+    "responsibility/blame allocation across interfaces, "
+    "and cross-artifact traceability validation": (
+        "[自审策略: 因果账本对账审计]\n"
+        "三重检查：(1) 因果链条中每个'契约'是否可满足；"
+        "(2) 跨接口的责任分配是否合理；(3) 跨文档/来源的可追溯性是否完整。"
+    ),
+    "loop-integrity audit: conservation/delay closure checks + do-calculus consistency "
+    "+ counterfactual stress tests, plus a final provenance/unit/scale/order sanity checklist "
+    "(rank-position mapping, currency/units, and time-index alignment)": (
+        "[自审策略: 回路完整性审计（增强版）]\n"
+        "四重检查：(1) 因果回路守恒与延迟闭合；(2) do-演算一致性；"
+        "(3) 反事实压力测试；(4) 最终健全性检查——排名映射、货币/单位、时间索引是否对齐。"
+    ),
+    "pre_mortem_invariant_breaks": (
+        "[自审策略: 事前分析不变量突破]\n"
+        "假设你的预测已经错了，回溯分析哪个'不变量'（你认为不会改变的前提）被突破了。"
+        "列出所有隐含不变量，逐一评估被突破的可能性。"
+    ),
+    "premortem_scenario_matrix + analog_episode_backcast + signal_leakage_check": (
+        "[自审策略: 事前分析矩阵+类比回测+信号泄漏检查]\n"
+        "三重自审：(1) 构建失败场景矩阵，分析每种失败路径的概率；"
+        "(2) 用类似历史事件回测你的推理是否能预测已知结果；"
+        "(3) 检查是否有信号泄漏（用了不该用的未来信息）。"
+    ),
+    "retrodictive_backtest_with_synthetic_controls_and_order_invariants": (
+        "[自审策略: 回溯测试+合成对照+排序不变量]\n"
+        "在历史数据上回测你的预测逻辑，使用合成对照组验证因果关系，"
+        "并检查排序不变量——如果A>B>C在历史上始终成立，你的预测是否违反了这个序？"
+    ),
+    "timeline_coherence_and_actor_capability_stress_test": (
+        "[自审策略: 时间线连贯性+参与者能力压力测试]\n"
+        "检查你的推理时间线是否连贯（事件顺序是否合理、时间间隔是否够用），"
+        "并压力测试关键参与者是否真的有能力做到你假设的行为。"
+    ),
+    "unit_scale_sanity + rank_order_consistency + counterfactual_lob_replay "
+    "+ cross_venue_leadlag + signal_orthogonality": (
+        "[自审策略: 多维健全性检查]\n"
+        "五重检查：(1) 单位和量级是否合理；(2) 排序一致性；"
+        "(3) 反事实回放验证；(4) 跨场所领先滞后关系；"
+        "(5) 信号正交性（确认不是重复计算同一信息）。"
+    ),
+})
+
+TERMINATION_TEMPLATES.update({
+    "actionability_ev_gate": (
+        "[停止条件: 可操作性期望值门]\n"
+        "当继续搜索的边际信息不再改变你的最终行动建议时停止。"
+        "即使不确定性仍在，只要最优行动已经明确就可以停止。"
+    ),
+    "identifiability_reached+uncertainty_budget_exhausted": (
+        "[停止条件: 可识别性达成+不确定性预算耗尽]\n"
+        "双重停止条件：(1) 关键变量已可识别（不再混淆）；"
+        "(2) 分配的不确定性探索预算已用完。任一条件满足即停止。"
+    ),
+    "marginal_analogy_gain_plateau": (
+        "[停止条件: 边际类比收益平台期]\n"
+        "当新找到的历史类比案例不再提供新的洞察或改变概率判断时停止。"
+        "连续 2-3 个新类比都指向同一结论，则认为类比搜索已饱和。"
+    ),
+    "marginal_contradiction_plateau": (
+        "[停止条件: 边际矛盾平台期]\n"
+        "当新的反面搜索不再发现新的矛盾或反面证据时停止。"
+        "已有的反面证据要么已被解释，要么已纳入概率判断。"
+    ),
+    "value-of-information saturation: stop when marginal expected decision-impact "
+    "per additional query falls below a threshold for all top actions": (
+        "[停止条件: 信息价值饱和]\n"
+        "当每次额外搜索对最终决策的边际期望影响低于阈值时停止。"
+        "即搜索更多信息已经不会改变你选择哪个答案。"
+    ),
+})
+
+
 # ──── QP-201: 8 维 TEMPLATES 主字典 ────
 
 TEMPLATES: Dict[str, Dict[str, str]] = {
