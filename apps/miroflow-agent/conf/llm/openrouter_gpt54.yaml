@@ -1,13 +1,13 @@
-# conf/llm/openrouter_glm5_turbo.yaml - GPT-5 via OpenRouter
+# conf/llm/openrouter_gpt54.yaml - GPT-5.4 via OpenRouter
 provider: "openai"
-model_name: "openai/gpt-5-2025-08-07"
+model_name: "openai/gpt-5.4"
 async_client: false
 temperature: 1
 top_p: 1.0
 min_p: 0.0
 top_k: -1
 max_tokens: 4096
-max_context_length: 262144
+max_context_length: 200000
 api_key: "${oc.env:OPENAI_API_KEY}"
 base_url: "https://openrouter.ai/api/v1"
 keep_tool_result: -1

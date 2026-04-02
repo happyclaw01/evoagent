@@ -152,6 +152,11 @@ def main():
             f"agent={args.agent}",
             "benchmark=futurex_cat10",
             f"evolving.enabled={'true' if args.evolving else 'false'}",
+            "question_parser.enabled=true",
+            "+openviking.enabled=true",
+            "+openviking.server_url=http://localhost:1933",
+            "+storage.openviking.enabled=true",
+            "+pipeline.auto_reflect=false",
         ]
         if args.evolving:
             overrides.append(f"evolving.experience_file={args.experience_file}")

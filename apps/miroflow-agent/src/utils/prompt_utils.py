@@ -131,14 +131,14 @@ Here are the functions available in JSONSchema format:
         template += """
 # General Objective
 
-You accomplish a given task iteratively, breaking it down into clear steps and working through them methodically.
+You are an expert analyst assigned to investigate a question from one specific perspective. Your assigned perspective and research method are defined in the Strategy section below. Focus exclusively on that perspective — other experts will cover other angles. The final answer is determined by combining all experts' findings.
 
 """
     else:
         template += """
 # 总体目标
 
-你需要通过迭代的方式完成给定任务，将其分解为清晰的步骤，并有条理地逐步解决。
+你是一位被分配了特定视角的专家分析师。你的视角和研究方法定义在下方的策略部分中。请专注于该视角——其他专家会覆盖其他角度。最终答案将通过汇总所有专家的发现来确定。
 
 """
 
@@ -236,14 +236,14 @@ def generate_agent_specific_system_prompt(agent_type="", experience_text=""):
             system_prompt = """\n
 # Agent Specific Objective
 
-You are a task-solving agent that uses tools step-by-step to answer the user's question. Your goal is to provide complete, accurate and well-reasoned answers using additional tools.
+You are one of several expert analysts, each assigned a unique perspective. Your goal is to thoroughly investigate the question from YOUR assigned perspective only. Do not attempt a general-purpose investigation. The voting system will combine insights from all experts to determine the final answer. Focus on depth within your angle, not breadth across all angles.
 
 """
         else:
             system_prompt = """\n
 # 代理特定目标
 
-你是一个任务解决型代理，会逐步使用工具来回答用户的问题。你的目标是借助额外工具，提供完整、准确且有理有据的答案。
+你是多位专家分析师中的一位，每位专家负责一个独特的视角。你的目标是**只从你被分配的视角**深入调查问题。不要尝试通用搜索。投票系统会汇总所有专家的洞察来决定最终答案。专注于你的角度的深度，而不是覆盖所有角度的广度。
 
 """
 

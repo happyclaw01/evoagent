@@ -590,9 +590,50 @@ async def _run_single_path(
             # When QP is enabled, inject combined trace + structured output instruction
             ist_suffix = COMBINED_TRACE_AND_OUTPUT_INSTRUCTION
         
+        # EA-012: Extract island_id for role-based prompt framing
+        _strategy_def = strategy.get("_strategy_def", None)
+        _island_id = getattr(_strategy_def, "island_id", None) if _strategy_def else None
+
         def strategy_augmented_prompt(date, mcp_servers):
             base_prompt = original_generate(date=date, mcp_servers=mcp_servers)
-            return base_prompt + strategy["prompt_suffix"] + viking_suffix + ist_suffix
+            # EA-012: Role-based strategy injection
+            # Each path is an EXPERT in one perspective, not a "task-solver with a constraint".
+            # The expert only gathers evidence from their angle; the voting system synthesizes.
+            island_label = _island_id or "综合分析"
+            use_cn = os.getenv("USE_CN_PROMPT", "0")
+            if use_cn != "0":
+                strategy_block = (
+                    f"\n\n# ⚠️ 你的专家角色：{island_label}分析师\n"
+                    f"你是一个**{island_label}**领域的专家分析师。你的工作不是独立回答整道题，"
+                    "而是**只从你的专业角度收集证据、分析信息**。\n"
+                    "最终答案将由多位不同角度的专家投票汇总，你只需要确保你的角度被充分覆盖。\n\n"
+                    "## 你必须遵循的研究方法\n"
+                    + strategy["prompt_suffix"]
+                    + "\n\n## 行为准则\n"
+                    "- 你的每一次搜索都必须服务于上述研究方法描述的角度\n"
+                    "- 不要试图覆盖所有角度——其他专家会负责其他视角\n"
+                    "- 如果你的角度下找不到足够信息，如实报告，不要切换到通用搜索\n"
+                    "- 最终仍需给出你这个视角下认为最可能的选项（用 \\boxed{} 格式）\n"
+                )
+            else:
+                strategy_block = (
+                    f"\n\n# ⚠️ YOUR EXPERT ROLE: {island_label} Analyst\n"
+                    f"You are an expert analyst specializing in **{island_label}**. "
+                    "Your job is NOT to independently solve the entire question, but to "
+                    "**gather evidence and analyze information only from your specialized angle**.\n"
+                    "The final answer will be determined by a voting system that aggregates "
+                    "insights from multiple experts with different perspectives. You only need "
+                    "to ensure your angle is thoroughly covered.\n\n"
+                    "## Your Required Research Method\n"
+                    + strategy["prompt_suffix"]
+                    + "\n\n## Behavioral Rules\n"
+                    "- Every search you make MUST serve the perspective described above\n"
+                    "- Do NOT try to cover all angles — other experts handle other perspectives\n"
+                    "- If you cannot find enough information from your angle, report honestly; "
+                    "do NOT fall back to generic searches\n"
+                    "- You must still give your best guess from your perspective using \\boxed{} format\n"
+                )
+            return base_prompt + viking_suffix + ist_suffix + strategy_block
 
         llm_client.generate_agent_system_prompt = strategy_augmented_prompt
 

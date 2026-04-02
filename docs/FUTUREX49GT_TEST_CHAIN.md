@@ -16,7 +16,7 @@ cd apps/miroflow-agent
 PYTHONPATH=".:benchmarks:${PYTHONPATH:-}" \
 .venv/bin/python benchmarks/common_benchmark.py \
     benchmark=futurex_49gt \
-    llm=openrouter_gpt5 \
+    llm=openrouter_glm5_turbo \
     llm.async_client=true \
     benchmark.execution.max_concurrent=3 \
     benchmark.execution.pass_at_k=1 \

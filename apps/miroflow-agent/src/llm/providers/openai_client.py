@@ -138,6 +138,9 @@ class OpenAIClient(BaseClient):
         if "deepseek-v3-1" in self.model_name:
             params["extra_body"]["thinking"] = {"type": "enabled"}
 
+        if "gpt-5.4" in self.model_name:
+            params["extra_body"]["reasoning"] = {"effort": "medium"}
+
         try:
             if self.async_client:
                 response = await self.client.chat.completions.create(**params)

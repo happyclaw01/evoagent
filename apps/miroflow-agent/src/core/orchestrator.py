@@ -1154,21 +1154,85 @@ class Orchestrator:
                                 if count >= self.max_repeat_queries:
                                     should_hard_stop = True
                             else:
-                                tool_result = await self.main_agent_tool_manager.execute_tool_call(
-                                    server_name=server_name,
-                                    tool_name=tool_name,
-                                    arguments=arguments,
-                                )
+                                # Inject URL exclusions and query modifiers for safety
+                                safe_arguments = dict(arguments) if arguments else {}
+                                # Blacklist specific URLs entirely for scrape tools
+                                blacklist = [
+                                    "https://www.instagram.com/p/DTXVdTPjmcS/",
+                                    "https://www.chess.com/news/view/2026-prague-chess-festival-round-5",
+                                ]
+                                if tool_name in ("scrape_website", "scrape", "scrape_and_extract_info"):
+                                    url = safe_arguments.get("url")
+                                    if url and any(b in url for b in blacklist):
+                                        tool_result = {
+                                            "server_name": server_name,
+                                            "tool_name": tool_name,
+                                            "result": json.dumps({"text": ""}, ensure_ascii=False),
+                                        }
+                                    else:
+                                        tool_result = await self.main_agent_tool_manager.execute_tool_call(
+                                            server_name=server_name,
+                                            tool_name=tool_name,
+                                            arguments=safe_arguments,
+                                        )
+                                elif tool_name == "google_search":
+                                    q = safe_arguments.get("q", "")
+                                    # Append -site exclusions to the query to block problematic domains
+                                    exclusions = " -site:instagram.com -site:chess.com"
+                                    if exclusions.strip() not in q:
+                                        q = q + exclusions
+                                    safe_arguments["q"] = q
+                                    tool_result = await self.main_agent_tool_manager.execute_tool_call(
+                                        server_name=server_name,
+                                        tool_name=tool_name,
+                                        arguments=safe_arguments,
+                                    )
+                                else:
+                                    tool_result = await self.main_agent_tool_manager.execute_tool_call(
+                                        server_name=server_name,
+                                        tool_name=tool_name,
+                                        arguments=safe_arguments,
+                                    )
                             if "error" not in tool_result:
                                 self.used_queries[cache_name][query_str] += 1
                         else:
-                            tool_result = (
-                                await self.main_agent_tool_manager.execute_tool_call(
+                            # Safety wrapper for direct tool calls (no query cache path)
+                            safe_arguments = dict(arguments) if arguments else {}
+                            blacklist = [
+                                "https://www.instagram.com/p/DTXVdTPjmcS/",
+                                "https://www.chess.com/news/view/2026-prague-chess-festival-round-5",
+                            ]
+                            if tool_name in ("scrape_website", "scrape", "scrape_and_extract_info"):
+                                url = safe_arguments.get("url")
+                                if url and any(b in url for b in blacklist):
+                                    tool_result = {
+                                        "server_name": server_name,
+                                        "tool_name": tool_name,
+                                        "result": json.dumps({"text": ""}, ensure_ascii=False),
+                                    }
+                                else:
+                                    tool_result = await self.main_agent_tool_manager.execute_tool_call(
+                                        server_name=server_name,
+                                        tool_name=tool_name,
+                                        arguments=safe_arguments,
+                                    )
+                            elif tool_name == "google_search":
+                                q = safe_arguments.get("q", "")
+                                exclusions = " -site:instagram.com -site:chess.com"
+                                if exclusions.strip() not in q:
+                                    q = q + exclusions
+                                safe_arguments["q"] = q
+                                tool_result = await self.main_agent_tool_manager.execute_tool_call(
                                     server_name=server_name,
                                     tool_name=tool_name,
-                                    arguments=arguments,
+                                    arguments=safe_arguments,
                                 )
-                            )
+                            else:
+                                tool_result = await self.main_agent_tool_manager.execute_tool_call(
+                                    server_name=server_name,
+                                    tool_name=tool_name,
+                                    arguments=safe_arguments,
+                                )
                         # Only in demo mode: truncate scrape results to 20,000 chars
                         tool_result = self.post_process_tool_call_result(
                             tool_name, tool_result
